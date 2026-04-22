@@ -1,0 +1,50 @@
+# R and RStudio
+.Rhistory
+.RData
+.Rproj.user/
+.Ruserdata
+.Rapp.history
+.Rapp.history.lock
+
+# Data and output
+/data/
+/output/
+published_research/
+*.xlsx
+*.csv
+*.tsv
+*.sav
+*.rds
+*.feather
+*.parquet
+
+# Notebooks
+*.ipynb
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# VSCode
+.vscode/
+
+# Other
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.gif
+*.svg
+*.zip
+*.tar.gz
+*.tar.bz2
+*.tar
+*.gz
+*.bz2
+*.7z
+*.bak
+*.tmp
