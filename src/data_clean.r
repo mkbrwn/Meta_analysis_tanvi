@@ -3,7 +3,7 @@
 #Load packages
 library(tidyverse)
 library(readxl)
-library(metafor)
+library(meta) # I suspect they used meta package 
 
 #load data - If you change the brackets to teh file extension of the data sheet the rest of the code should work as is.
 dat <- read_excel("data/CAP_mortality.xlsx")
@@ -24,54 +24,37 @@ dat <- dat %>%
 
 # Order studies alphabetically by study_name
 dat <- dat[order(dat$study_name), ]
-    
 
-# Pooling proportions of hospital deaths
-# Calculate observed proportions and pool using rma (random-effects meta-analysis)
-# Use escalc to compute effect sizes (proportions)
-escalc_dat <- escalc(measure = "PLO", xi = hospital_death, ni = number_of_patients, data = dat)
+#remove if hospital_death is NA
+dat <- dat[!is.na(dat$hospital_death), ] 
 
-# Random-effects meta-analysis of proportions
-res <- rma.glmm(
-                measure = "PLO",
-                yi,
-                 vi, 
-                 data = escalc_dat, 
-                 method = "REML")
+#make numeric 
+dat <- dat %>%
+    mutate(
+        hospital_death = round(as.numeric(hospital_death)),
+        number_of_patients = round(as.numeric(number_of_patients)),
+        proportion_died = as.numeric(proportion_died)
+    )
 
+# Meta-analysis of proportions using meta::metaprop
+res <- metaprop(
+    event = hospital_death,
+    n = number_of_patients,
+    studlab = dat$study_name,
+    method = "GLMM",           # REML method for estimating between-study variance
+    data = dat,
+    sm = "PLOGIT",           # Logit transformation
+    method.ci = "CP",        # Clopper-Pearson confidence intervals
+    random = TRUE,
+    common = TRUE,
+    prediction = TRUE)
 
 # Print summary
 summary(res)
 
-# Plot forest plot with ilab columns for number_of_patients, hospital_death, and prop
-ilab_data <- cbind(dat$number_of_patients, dat$hospital_death, round(dat$proportion_died, 3))
-colnames(ilab_data) <- c("N", "Deaths", "Proportion")
-
-forest.rma(
+#produce forest plot and save as png
+forest(
     res, 
-    slab = dat$study_name,
-    showweights = TRUE,
-    ilab = ilab_data,
-    ilab.xpos = c(-7, -5.75, -4.5)
+    file = "output/forest_plot.png",
+    width = 600
 )
-
-# Add column headers for ilab columns (aligned with main headings)
-op <- par(cex = 1)
-text(c(-7, -5.75, -4.5), par("usr")[4], c("N", "Deaths", "Proportion"), pos = 1, font = 2)
-par(op)
-
-# Add summary of heterogeneity below the plot
-het_text <- paste0(
-    "Heterogeneity: Q = ", round(res$QE, 2),
-    ", p = ", format.pval(res$QEp, digits = 2),
-    ", I² = ", round(res$I2, 1), "%",
-    ", tau² = ", round(res$tau2, 3)
-)
-text(x = -8.8, y = -2, labels = het_text, pos = 4, cex = 0.9)
-
-# Add description of the overall effect below the plot
-overall_text <- paste0(
-    "Overall effect (logit scale): ", round(res$b, 2),
-    " [", round(res$ci.lb, 2), ", ", round(res$ci.ub, 2), "]"
-)
-text(x = -8.8, y = -1, labels = overall_text, pos = 4, cex = 0.9)
