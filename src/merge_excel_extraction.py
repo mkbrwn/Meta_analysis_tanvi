@@ -31,7 +31,19 @@ def normalize_columns(columns: pd.Index) -> list[str]:
     return normalized
 
 
-def merge_workbooks(excel_files: list[Path]) -> pd.DataFrame:
+def canonicalize_study_number(value: object) -> str:
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "<na>"}:
+        return ""
+
+    # Normalize numeric-like labels so 128 and 128.0 match.
+    match = re.fullmatch(r"[+-]?\d+(?:\.0+)?", text)
+    if match:
+        return str(int(float(text)))
+    return text
+
+
+def merge_workbooks(excel_files: list[Path], excluded_study_numbers: set[str]) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
 
     for file_path in excel_files:
@@ -52,8 +64,10 @@ def merge_workbooks(excel_files: list[Path]) -> pd.DataFrame:
         raise KeyError("Required column not found after merge: study number")
 
     # Keep only rows where study number is present and not just whitespace.
-    keep_mask = merged["study number"].astype("string").str.strip().ne("")
-    keep_mask = keep_mask.fillna(False)
+    normalized_study_numbers = merged["study number"].map(canonicalize_study_number)
+    keep_mask = normalized_study_numbers.ne("")
+    if excluded_study_numbers:
+        keep_mask &= ~normalized_study_numbers.isin(excluded_study_numbers)
     return merged.loc[keep_mask].reset_index(drop=True)
 
 
@@ -63,13 +77,18 @@ def main() -> None:
     )
     parser.add_argument(
         "--input-dir",
-        default="data/data_extraction",
-        help="Folder containing .xlsx/.xls files (default: data/data_extraction)",
+        default="data/data_extraction_tanvi_050626",
+        help="Folder containing .xlsx/.xls files (default: data/data_extraction_tanvi_050626)",
     )
     parser.add_argument(
         "--output-base",
         default="merged_all_sheets",
         help="Output file base name without extension (default: merged_all_sheets)",
+    )
+    parser.add_argument(
+        "--exclude-study-numbers",
+        default="",
+        help="Comma-separated study numbers to exclude, e.g. 128,130,203,153",
     )
     args = parser.parse_args()
 
@@ -87,7 +106,12 @@ def main() -> None:
             f"No .xlsx/.xls files found in {input_dir} after exclusions: {sorted(excluded_names)}"
         )
 
-    merged = merge_workbooks(excel_files)
+    excluded_study_numbers = {
+        canonicalize_study_number(item)
+        for item in args.exclude_study_numbers.split(",")
+        if item.strip()
+    }
+    merged = merge_workbooks(excel_files, excluded_study_numbers)
     merged.to_excel(output_xlsx, sheet_name="merged_data", index=False)
     merged.to_csv(output_csv, index=False)
 
@@ -95,6 +119,7 @@ def main() -> None:
     print(f"Workbook files merged: {len(excel_files)}")
     print(f"Rows: {len(merged)}")
     print(f"Columns: {len(merged.columns)}")
+    print(f"Excluded study numbers: {sorted(excluded_study_numbers) if excluded_study_numbers else []}")
     print(f"Created: {output_xlsx}")
     print(f"Created: {output_csv}")
 
