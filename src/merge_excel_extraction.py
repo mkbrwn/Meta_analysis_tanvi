@@ -43,6 +43,25 @@ def canonicalize_study_number(value: object) -> str:
     return text
 
 
+def _normalized_series(df: pd.DataFrame, column: str) -> pd.Series:
+    # Convert empty/whitespace-only strings to missing so coalesce works reliably.
+    series = df[column]
+    return series.mask(series.astype(str).str.strip().eq(""))
+
+
+def fill_missing_sex_from_male_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if "sex" not in df.columns:
+        return df
+
+    sex_series = _normalized_series(df, "sex")
+    for candidate in ("male", "males"):
+        if candidate in df.columns:
+            sex_series = sex_series.fillna(_normalized_series(df, candidate))
+
+    df["sex"] = sex_series
+    return df
+
+
 def merge_workbooks(excel_files: list[Path], excluded_study_numbers: set[str]) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
 
@@ -68,7 +87,8 @@ def merge_workbooks(excel_files: list[Path], excluded_study_numbers: set[str]) -
     keep_mask = normalized_study_numbers.ne("")
     if excluded_study_numbers:
         keep_mask &= ~normalized_study_numbers.isin(excluded_study_numbers)
-    return merged.loc[keep_mask].reset_index(drop=True)
+    merged = merged.loc[keep_mask].reset_index(drop=True)
+    return fill_missing_sex_from_male_columns(merged)
 
 
 def main() -> None:
