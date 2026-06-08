@@ -107,8 +107,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--exclude-study-numbers",
-        default="",
-        help="Comma-separated study numbers to exclude, e.g. 128,130,203,153",
+        default="13,128,130,153,203",
+        help="Comma-separated study numbers to exclude, e.g. 13,128,130,153,203",
     )
     args = parser.parse_args()
 
