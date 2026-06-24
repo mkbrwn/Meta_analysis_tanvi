@@ -1,0 +1,108 @@
+study number,raw_age,age_median,age_iqr_lower,age_iqr_upper,age_mean,age_sd,age_method,age_manual_clean,raw_icu_los,icu_los_median,icu_los_iqr_lower,icu_los_iqr_upper,icu_los_mean,icu_los_sd,icu_los_method,icu_los_manual_clean,raw_hosp_los,hosp_los_median,hosp_los_iqr_lower,hosp_los_iqr_upper,hosp_los_mean,hosp_los_sd,hosp_los_method,hosp_los_manual_clean
+1.0,42.3 ± 14.7 (Median ± SD),,,,42.3,14.7,mean_sd,False,17.9 ± 13.5 ( mean ± SD),,,,17.9,13.5,mean_sd,False,,,,,,,empty,False
+2.0,≥18 years: years mean +/- SD 75.1 ± 14.0,,,,75.1,14.0,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+3.0,survivor group (n=49): 70.0 ± 2.0; non-survivor group (n=14): 69.1 ± 4.1,,,,70.0,2.0,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+4.0,≥18 years:,,,,,,unparseable,True,,,,,,,empty,False,,,,,,,empty,False
+5.0,Mean IQR: empiricial antiviral 56.1 (14.5). No antiviral 57.6 (16.3),,,,,,unparseable,True,Days (IQR) antiviral 24.5 (31) no antiviral 26.2 (27.5),,,,,,unparseable,True,Days (IQR) antiviral 42 (45) no antiviral 42.2 (28.8),,,,,,unparseable,True
+6.0,≥18 years: mean years 65.4; SD 14.6; median years 67,,,,65.4,14.6,mean_sd,False,Mean SD (days) n=8.7 (SD 9.6). Median n=6.0 (no IQR),,,,8.7,9.6,mean_sd,False,Mean SD (days) n=13.6 (SD 12.1). Median n=10.0 (no IQR),,,,13.6,12.1,mean_sd,False
+7.0,Mean age was 60.5 years (SD 16.4),,,,60.5,16.4,mean_sd,False,Days in the ICU (Survivors): median 13 days (IQR 8–23 in men; 8–22 in women),13.0,,,,,median_only,False,,,,,,,empty,False
+8.0,≥18 years: years mean +/- SD 75.03± 13.41,,,,75.03,13.41,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+14.0,≥18 years,,,,,,unparseable,True,,,,,,,empty,False,,,,,,,empty,False
+17.0,"≥18 years: years median [IQR] KP-CAP 68 [56, 80]; SP-CAP 73 [61, 81]",68.0,56.0,80.0,,,iqr_parenthetical,False,,,,,,,empty,False,,,,,,,empty,False
+18.0,≥18 years,,,,,,unparseable,True,"Median (IQR) in days: no ARDS = 5 (3, 9); ARDS = 9 (5, 15)",5.0,3.0,9.0,,,iqr_parenthetical,False,"Median (IQR) in days: no ARDS = 9 (6, 15); ARDS = 13 (7, 20)",9.0,6.0,15.0,,,iqr_parenthetical,False
+19.0,"≥18 years: median age of 73 years (range 18–95, IQR: 20)",73.0,,,,,median_only,False,"Group-level medians by mortality status reported, overall cohort LOS not explicitly stated. Days median (IQR), 1-month survival group 5 (13); 1-month non-survival group 4.5 (9); 90-day survival group 4 (9); 90-day non-survival group 5.5 (13.0)",,,,,,unparseable,True,,,,,,,empty,False
+22.0,≥18 years,,,,,,unparseable,True,,,,,,,empty,False,,,,,,,empty,False
+25.0,≥80 years: year median (Q1 ; Q3) 83 (81; 85),83.0,81.0,85.0,,,iqr_parenthetical,False,,,,,,,empty,False,days median (Q1 ; Q3) 12 (8 ; 18),12.0,8.0,18.0,,,iqr_parenthetical,False
+26.0,>18: years median IQR; no LP 65 (53–77); LP 59 (49–74),65.0,53.0,77.0,,,iqr_parenthetical,False,Median days (IQR): no LP group = 4 (2-8); LP group 10 (6-23); no meningitis group 10 (6-24); meningitis group 8 (3-17),4.0,2.0,8.0,,,iqr_parenthetical,False,,,,,,,empty,False
+30.0,≥18 years: years median (IQR) 63.0 (49.0–73.0),63.0,49.0,73.0,,,median_iqr,False,Median 9 days (IQR 6–16),9.0,,,,,median_only,False,,,,,,,empty,False
+31.0,"≥18 years: years median (IQR) 69 (56, 79)",69.0,56.0,79.0,,,median_iqr,False,,,,,,,empty,False,,,,,,,empty,False
+32.0,"≥18 years: year, mean +/- SD 60 (+/- 16.5)",,,,60.0,16.5,mean_sd_explicit,False,Days (mean ± SD): Overall: 9.2 ± 11 days,,,,9.2,11.0,mean_sd,False,,,,,,,empty,False
+34.0,"Years old medican (IQR 77 (69, 83)",77.0,69.0,83.0,,,iqr_parenthetical,False,"days median (IQR) 13 (7, 24)",13.0,7.0,24.0,,,median_iqr,False,"days median (IQR) 21 (12, 33)",21.0,12.0,33.0,,,median_iqr,False
+39.0,≥18 years: positive BC median (range) 62 (19 to 96); negative BC 64 (21 to 99),,,,,,unparseable,True,,,,,,,empty,False,,,,,,,empty,False
+81.0,"Age (years), mean (SD) 55.7 (16.8)",,,,55.7,16.8,mean_sd_parenthetical,False,,,,,,,empty,False,,,,,,,empty,False
+82.0,"Age (y), median (IQR) 71 (59-8)",71.0,59.0,8.0,,,median_iqr,False,"Length of ICU stay, median (IQR) NIV 9 (4-14) iv 9 (5-16)",9.0,4.0,14.0,,,iqr_parenthetical,False,"Length of hospital stay, median (IQR) NIV 20 (11-32) IV 17 (11-29)",20.0,11.0,32.0,,,iqr_parenthetical,False
+84.0,"Median age was 64 years (range 18 to 101, IQR 51 to 71)",64.0,,,,,median_only,False,Median length of stay in the ICU was 11 days (IQR 6 to 23),,,,,,unparseable,True,median length of stay in hospital was 22 days (IQR 13 to 40),,,,,,unparseable,True
+85.0,nonsurvivors through mechanical ventilation. Their mean ages were 56.5 + 7.8 years. survivors through mechanical ventilation. Their mean aged 48 + 11.3 years.,,,,48.0,,mean_only,False,,,,,,,empty,False,,,,,,,empty,False
+86.0,sirolimus group age years 46.7 +/- 12.1; non-sirolimus group age years 51.5 +/- 16,,,,46.7,12.1,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+87.0,,,,,,,empty,False,"""Length of ICU stay—d 6 [3-15]""",6.0,3.0,15.0,,,iqr_parenthetical,False,,,,,,,empty,False
+88.0,mean (SD) age was 67.5 (12.4) years,,,,67.5,12.4,mean_sd_parenthetical,False,deceased (days) 12 (1-48); survived (days) 7 (1-44),12.0,1.0,48.0,,,iqr_parenthetical,False,,,,,,,empty,False
+89.0,57±17,,,,57.0,17.0,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+90.0,median (range) age 63.8 (23–80) years,63.8,23.0,80.0,,,iqr_parenthetical,False,,,,,,,empty,False,,,,,,,empty,False
+91.0,Mean age 65.1 ± 15.3 years,,,,65.1,15.3,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+92.0,average age was 56.8±16,,,,56.8,16.0,mean_sd,False,Average ICU stay was 11.0±11.8 days,,,,11.0,11.8,mean_sd,False,18.7 (17.1) days,,,,,,unparseable,True
+95.0,ages of patients ranged from 14 to 71 years with a mean of 35.27 ± 14.35 years,,,,35.27,14.35,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+96.0,"Age, median bQ (n = 104) 54 (44–67) bM (n = 106) 55 (43–67)",54.0,44.0,67.0,,,iqr_parenthetical,False,"ICU* LOS†, days, mean (SD) bQ 5.3 (4.3) bM 5.3 (5.2)",,,,5.3,4.3,mean_sd_parenthetical,False,"Hospital LOS, days, mean (SD) bQ 16.1 (18.3) bM 13.4 (10.3)",,,,16.1,18.3,mean_sd_parenthetical,False
+97.0,The mean (± SD) age was 61±18 years,,,,61.0,18.0,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+98.0,"""Age, years (median [IQR]) 62 [46; 76]""",62.0,46.0,76.0,,,iqr_parenthetical,False,median [IQR] 7 [3; 15],7.0,3.0,15.0,,,iqr_parenthetical,False,median [IQR] 16 [8; 31],16.0,8.0,31.0,,,iqr_parenthetical,False
+100.0,Mean (SD): 55.5 (15.9),,,,55.5,15.9,mean_sd_parenthetical,False,Median (IQR): 18 (11-30),18.0,11.0,30.0,,,iqr_parenthetical,False,,,,,,,empty,False
+101.0,60 (49-75),60.0,49.0,75.0,,,iqr_parenthetical,False,median ICU length of stay was 13 (6 to 25) days.,,,,,,unparseable,True,,,,,,,empty,False
+102.0,58-62,,,,60.0,,range_midpoint,True,,,,,,,empty,False,,,,,,,empty,False
+104.0,mean age of 42 (±16.1) years,,,,42.0,,mean_only,False,Median (IQR): 12 days (6-22),,,,,,unparseable,True,,,,,,,empty,False
+105.0,Mean 49.5y,,,,49.5,,mean_only,False,9.5 (1-68),9.5,1.0,68.0,,,iqr_parenthetical,False,,,,,,,empty,False
+106.0,mean age at admission of 59.4±13.4 years.,,,,59.4,13.4,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+107.0,70 (54-81) median with 25/75% IQR,70.0,54.0,81.0,,,iqr_parenthetical,False,7 (4-15),7.0,4.0,15.0,,,iqr_parenthetical,False,13 (9-26),13.0,9.0,26.0,,,iqr_parenthetical,False
+109.0,Age (y) 73.5 (57.7-83),73.5,57.7,83.0,,,iqr_parenthetical,False,7 (4-11),7.0,4.0,11.0,,,iqr_parenthetical,False,12 (8-19.25),12.0,8.0,19.25,,,iqr_parenthetical,False
+110.0,"median age, 69 years",,,,,,unparseable,True,13 (15),,,,,,unparseable,True,18 (24),,,,,,unparseable,True
+111.0,median (IQR) 63.4 ± 16.5,,,,63.4,16.5,mean_sd,False,,,,,,,empty,False,11 (9),,,,11.0,9.0,mean_sd_implicit,False
+112.0,mean age was 63.8 ± 16.8 years.,,,,63.8,16.8,mean_sd,False,14.6 ± 16.3,,,,14.6,16.3,mean_sd,False,,,,,,,empty,False
+114.0,"mean age of 45.5 ± 14.5 (median, 47) years;",,,,45.5,14.5,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+119.0,,,,,,,empty,False,,,,,,,empty,False,,,,,,,empty,False
+120.0,Mean age was 41.6 ± 11.9 (range 21 to 61),,,,41.6,11.9,mean_sd,False,median length of ICU stay was 6 (IQR= 4-8),,,,,,unparseable,True,,,,,,,empty,False
+121.0,52.91 ± 18.89 | 52.91+-18.89 years,,,,52.91,18.89,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+122.0,62.88 (18.75),,,,62.88,18.75,mean_sd_implicit,False,5.3,,,,5.3,,plain_number,True,,,,,,,empty,False
+123.0,60.9 (16.07),,,,60.9,16.07,mean_sd_implicit,False,18.7 (15.9),,,,18.7,15.9,mean_sd_implicit,False,33.5 (25.1),,,,33.5,25.1,mean_sd_implicit,False
+126.0,71 (52.5-83.7),71.0,52.5,83.7,,,iqr_parenthetical,False,6 (4-9),6.0,4.0,9.0,,,iqr_parenthetical,False,10 (7-18.5),10.0,7.0,18.5,,,iqr_parenthetical,False
+127.0,68.7 +/- 13.0,,,,68.7,13.0,mean_sd,False,23.6 +/- 28,,,,23.6,28.0,mean_sd,False,34.4 +/- 36.2,,,,34.4,36.2,mean_sd,False
+131.0,61.6 (17.6),,,,61.6,17.6,mean_sd_implicit,False,5,,,,5.0,,plain_number,True,21,,,,21.0,,plain_number,True
+132.0,61.21,,,,61.21,,plain_number,True,15.5,,,,15.5,,plain_number,True,,,,,,,empty,False
+134.0,58.8 +/-16.3,,,,58.8,16.3,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+135.0,67.7 +/-16.3,,,,67.7,16.3,mean_sd,False,10.3,,,,10.3,,plain_number,True,24,,,,24.0,,plain_number,True
+136.0,72.9,,,,72.9,,plain_number,True,6,,,,6.0,,plain_number,True,12,,,,12.0,,plain_number,True
+139.0,61.1 +/- 17.9 y,,,,61.1,17.9,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+140.0,62±16,,,,62.0,16.0,mean_sd,False,5+/-3 days,,,,5.0,3.0,mean_sd,False,,,,,,,empty,False
+142.0,63 (mean),,,,,,unparseable,True,,,,,,,empty,False,,,,,,,empty,False
+143.0,74 (SD 6.5),,,,74.0,6.5,mean_sd,False,,,,,,,empty,False,18.2 days,,,,18.2,,plain_number,True
+144.0,59.5 ± 16.6,,,,59.5,16.6,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+145.0,,,,,,,empty,False,,,,,,,empty,False,,,,,,,empty,False
+146.0,,,,,,,empty,False,,,,,,,empty,False,,,,,,,empty,False
+147.0,71 (IQR 64-77),,,,,,unparseable,True,,,,,,,empty,False,,,,,,,empty,False
+149.0,39 (+/- 11),,,,,,unparseable,True,13.6+/-6.5,,,,13.6,6.5,mean_sd,False,18.7+/-9.6,,,,18.7,9.6,mean_sd,False
+150.0,76.5,,,,76.5,,plain_number,True,,,,,,,empty,False,23.5 days,,,,23.5,,plain_number,True
+151.0,61.7,,,,61.7,,plain_number,True,4.95,,,,4.95,,plain_number,True,10.75,,,,10.75,,plain_number,True
+154.0,62.3,,,,62.3,,plain_number,True,,,,,,,empty,False,,,,,,,empty,False
+155.0,62 ± 20,,,,62.0,20.0,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+156.0,54.5 | 54.5y (36-73),,,,,,unparseable,True,,,,,,,empty,False,,,,,,,empty,False
+157.0,71 (58-76),71.0,58.0,76.0,,,iqr_parenthetical,False,,,,,,,empty,False,,,,,,,empty,False
+159.0,mNGS 67y (55-75). CMTs 68y (54-77),,,,,,unparseable,True,8 days for both groups. IQR 4-12 for mNGS and 5-15 for CMTs,,,,,,unparseable,True,mNGS 12d (7-20). CMTs 13d (7-18),,,,,,unparseable,True
+160.0,72.73+/-12.85,,,,72.73,12.85,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+161.0,adult,,,,,,unparseable,True,Median 4 days,4.0,,,,,median_only,False,,,,,,,empty,False
+164.0,Mean 59.08 ± 15.76 years,,,,59.08,15.76,mean_sd,False,survivors 15.89 ± 11.31 days; non-survivors 10.65 ± 8.56 days,,,,15.89,11.31,mean_sd,False,,,,,,,empty,False
+166.0,Median 63 years (SOC) vs 59 years (CPA),63.0,,,,,median_only,False,4 days for SOC versus 6 days for CPA,,,,,,unparseable,True,Median 9 days in both groups,9.0,,,,,median_only,False
+167.0,"age (grouped as <40, 40–64, 65–79 and 80+)",,,,,,unparseable,True,,,,,,,empty,False,,,,,,,empty,False
+168.0,Mean 75,,,,75.0,,mean_only,False,Median 4 days (IQR 2–8) early rehab vs 4 days (IQR 2–9) control,4.0,,,,,median_only,False,Median 22 days (IQR 14–40) early rehab vs 22 days (IQR 13–44) control,22.0,,,,,median_only,False
+170.0,,,,,,,empty,False,"ICU stay, days 9 (3–64) survivors; 13 (2–47) nonsurvivors",9.0,3.0,64.0,,,iqr_parenthetical,False,"Hospital stay, days 20 (9–64) survivors; 18 (2–52) nonsurvivors",20.0,9.0,64.0,,,iqr_parenthetical,False
+172.0,adult,,,,,,unparseable,True,survivors 15 (10) days vs non-survivors 15 (15) days,,,,,,unparseable,True,survivors 25 (15) days vs non-survivors 21 (21) days,,,,,,unparseable,True
+173.0,adult,,,,,,unparseable,True,,,,,,,empty,False,EICUA mean 12 (SD 10) days vs LICUA mean 17,,,,12.0,10.0,mean_sd,False
+174.0,Median age: Psittacosis 48 years vs Legionella 60 years,,,,,,unparseable,True,Psittacosis: median 14 days; Legionella: median 10 days,14.0,,,,,median_only,False,,,,,,,empty,False
+175.0,adult,,,,,,unparseable,True,median 13 days,13.0,,,,,median_only,False,median 26 days (range 3–105),26.0,,,,,median_only,False
+179.0,Adults>=18y,,,,,,unparseable,True,,,,,,,empty,False,,,,,,,empty,False
+180.0,adult,,,,,,unparseable,True,,,,,,,empty,False,,,,,,,empty,False
+181.0,,,,,,,empty,False,,,,,,,empty,False,,,,,,,empty,False
+182.0,Mean age 59.9 ± 16.1 years | 59.91y +- 16.1,,,,59.9,16.1,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+186.0,,,,,,,empty,False,,,,,,,empty,False,,,,,,,empty,False
+187.0,Mean 69.9 ± 11.4 years,,,,69.9,11.4,mean_sd,False,N,,,,,,unparseable,True,Mean LOS 11.4 ± 7.5 days (reported as LOS),,,,11.4,7.5,mean_sd,False
+188.0,,,,,,,empty,False,,,,,,,empty,False,,,,,,,empty,False
+189.0,adult,,,,,,unparseable,True,,,,,,,empty,False,,,,,,,empty,False
+190.0,Mean 64.1 ± 12.6 years,,,,64.1,12.6,mean_sd,False,Mean ICU days 9.6 ± 4.3 overall; 8.5 ± 3.3 (success) vs 12.2 ± 5.2 (failure),,,,9.6,4.3,mean_sd,False,,,,,,,empty,False
+191.0,,,,,,,empty,False,,,,,,,empty,False,,,,,,,empty,False
+192.0,adult,,,,,,unparseable,True,5 (3–9) days vs 5 (3–9) days,5.0,3.0,9.0,,,iqr_parenthetical,False,14 (7–24) days vs 14 (6–28) days,14.0,7.0,24.0,,,iqr_parenthetical,False
+195.0,Median ~65 years,,,,,,unparseable,True,,,,,,,empty,False,,,,,,,empty,False
+196.0,Age years 65.8±14.4 (Non-ARDS patients); 63.1±17.3 (ARDS patients),,,,65.8,14.4,mean_sd,False,,,,,,,empty,False,15 (10–27) in Non-ARDS patients and 16 (9–30) in ARDS patients,15.0,10.0,27.0,,,iqr_parenthetical,False
+197.0,57.5 ± 11.8 years,,,,57.5,11.8,mean_sd,False,,,,,,,empty,False,,,,,,,empty,False
+198.0,adult,,,,,,unparseable,True,9 (4–14) days in treatment group; 12 (6–17) days in control group,9.0,4.0,14.0,,,iqr_parenthetical,False,,,,,,,empty,False
+199.0,median 50 years (IQR 38–57) overall; 48 (36–55) indigenous; 64 (57–70) non-indigenous,48.0,36.0,55.0,,,iqr_parenthetical,False,5.1 days (2.6–9.9) overall; 4.8 (2.7–9.7) indigenous; 4.6 (2.5–9.9) non-indigenous,4.8,2.7,9.7,,,iqr_parenthetical,False,11.1 days (6.4–20.1) overall; 10.9 (6.1–15.9) indigenous; 15.1 (5.4–22.3) non-indigenous,10.9,6.1,15.9,,,iqr_parenthetical,False
+200.0,adult,,,,,,unparseable,True,1.9 vs 3.4 days,,,,,,unparseable,True,6 vs 7 days (deescalation vs nondeescalation),,,,,,unparseable,True
+201.0,66 (53-76),66.0,53.0,76.0,,,iqr_parenthetical,False,12 (6-23) days,12.0,6.0,23.0,,,iqr_parenthetical,False,21 (12-33) days,21.0,12.0,33.0,,,iqr_parenthetical,False
+204.0,"median iqr - septic shock 63 (26), noss 60 (30)",,,,,,unparseable,True,,,,,,,empty,False,,,,,,,empty,False
+206.0,60.1+-14.8,,,,,,unparseable,True,,,,,,,empty,False,,,,,,,empty,False
+208.0,,,,,,,empty,False,3.98 (2.13-8.58) days,3.98,2.13,8.58,,,iqr_parenthetical,False,9.97 (5.94-16.97) days,9.97,5.94,16.97,,,iqr_parenthetical,False
