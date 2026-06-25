@@ -1,0 +1,1245 @@
+# =============================================================================
+# Average Data Cleaning Script — Version 1
+# =============================================================================
+#
+# CONTENTS
+# --------
+# Header / column mapping ......................................... 1-60
+# Libraries ....................................................... 62-65
+# CONFIGURATION ................................................... 67-103
+# HELPERS ......................................................... 105-400
+#   %||%, coalesce_val()
+#   normalise_text()
+#   is_plausible_los()
+#   build_study_reference()
+#   scalar_val()
+#   is_short_label_list()
+#   detect_subgroups()
+#   combine_subgroup_names()
+#   is_value_semicolon()
+#   strip_cell_header()
+#   extract_bare_avg()
+# CORE PARSER ..................................................... 401-680
+#   parse_average_block()
+#     Mean extraction
+#     Median extraction
+#     Avg-not-specified extraction
+#     Average flag assignment + inheritance
+#     post_avg_text build
+#     SD / IQR / Range / Unspec dispersion extraction
+#     Dispersion flag assignment + inheritance
+#     Flag: UQR < LQR / unparsed numbers
+#   split_groups()
+#   parse_average_cell()
+# PART 1: Read data ............................................... 681-700
+# PART 2: Cross-sheet subgroup name pre-scan ...................... 701-725
+# PART 3: Process each average column ............................. 726-960
+# PART 4: Write full + NR workbooks ............................... 961-1010
+# PART 5: Write condensed workbook ................................ 1011-1040
+#
+# COLUMN MAPPING (Excel letter -> header in merged_all_sheets.xlsx)
+#   D  = study number
+#   F  = authors
+#   I  = year published
+#   R  = age
+#   S  = number of participants
+#   T  = groups if applicable (e.g. if case-control, cohort)
+#   BB = intervention group
+#   BC = control group
+#   AD = icu length of stay          [PROCESSED]
+#   AE = hospital length of stay     [PROCESSED]
+#
+# OUTPUT WORKBOOKS:
+#   average_cleaned_v1.xlsx           -- full output, blank cells for NA
+#   average_cleaned_v1_NR.xlsx        -- full output, "NR" for NA
+#   average_cleaned_v1_condensed.xlsx -- condensed column subset
+#
+# =============================================================================
+
+library(dplyr)
+library(stringr)
+library(openxlsx)
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+input_path <- "C:/Users/goddab/OneDrive - University Hospital Southampton NHS Foundation Trust/Short-term CAP Outcomes Systematic Review (Tanvi)/CAPs_meta_repo/Meta_analysis_tanvi/data/data_extraction_tanvi_050626/merged_all_sheets.xlsx"
+
+output_path <- "C:/Users/goddab/OneDrive - University Hospital Southampton NHS Foundation Trust/Short-term CAP Outcomes Systematic Review (Tanvi)/CAPs_meta_repo/Meta_analysis_tanvi/src/ben_data_clean/cleaning_trial/average data/cleaned data/average_cleaned_v1.xlsx"
+
+output_path_nr <- "C:/Users/goddab/OneDrive - University Hospital Southampton NHS Foundation Trust/Short-term CAP Outcomes Systematic Review (Tanvi)/CAPs_meta_repo/Meta_analysis_tanvi/src/ben_data_clean/cleaning_trial/average data/cleaned data/average_cleaned_v1_NR.xlsx"
+
+output_path_condensed <- "C:/Users/goddab/OneDrive - University Hospital Southampton NHS Foundation Trust/Short-term CAP Outcomes Systematic Review (Tanvi)/CAPs_meta_repo/Meta_analysis_tanvi/src/ben_data_clean/cleaning_trial/average data/cleaned data/average_cleaned_v1_condensed.xlsx"
+
+# Column name constants
+COL_STUDY_NUM <- "study number"
+COL_AUTHORS   <- "authors"
+COL_YEAR      <- "year published"
+COL_GROUPS    <- "groups if applicable (e.g. if case-control, cohort)"
+COL_GROUP1    <- "intervention group"
+COL_GROUP2    <- "control group"
+COL_AGE       <- "age"
+
+# Each entry: list(sheet_name, character vector of source column names)
+AVERAGE_COLS <- list(
+  list("AD_icu_los",      c("icu length of stay")),
+  list("AE_hospital_los", c("hospital length of stay"))
+)
+
+# =============================================================================
+# HELPERS
+# =============================================================================
+
+`%||%` <- function(a, b) if (!is.null(a) && length(a) > 0 && !is.na(a[1])) a else b
+
+coalesce_val <- function(...) {
+  for (a in list(...)) { if (!is.null(a) && length(a) > 0 && !is.na(a[1])) return(a) }
+  NA_real_
+}
+
+normalise_text <- function(text) {
+  if (is.na(text)) return(NA_character_)
+  text <- str_replace_all(text, "–|—", "-")
+  text <- str_replace_all(text, "±", "±")   # keep ± as ±
+  text <- str_replace_all(text, "≥", ">=")
+  text <- str_replace_all(text, "≤", "<=")
+  text <- str_replace_all(text, "∼", "~")
+  text <- str_replace_all(text, " | ", " ")  # thin/non-breaking space
+  str_trim(text)
+}
+
+# Any non-negative LOS value is plausible (0 = same-day, upper bound 9999 days)
+is_plausible_los <- function(v) !is.na(v) && v >= 0 && v <= 9999
+
+build_study_reference <- function(author_raw, year_raw) {
+  author <- if (isTRUE(!is.na(author_raw)) && length(author_raw) > 0) str_trim(as.character(author_raw)) else ""
+  year   <- if (isTRUE(!is.na(year_raw))   && length(year_raw)   > 0) str_trim(as.character(year_raw))   else ""
+  if (nchar(author) == 0) {
+    surname <- ""
+  } else {
+    first_author <- str_trim(str_split(author, regex("\\s+and\\s+", ignore_case = TRUE))[[1]][1])
+    if (str_detect(first_author, ",")) {
+      surname <- str_trim(str_split(first_author, ",")[[1]][1])
+    } else {
+      surname <- str_trim(str_split(first_author, "\\s+")[[1]][1])
+    }
+  }
+  str_trim(paste(surname, year))
+}
+
+# Safely extract a single scalar from a data-frame row cell (which may be a list)
+scalar_val <- function(x, as_type = "character") {
+  if (is.null(x) || length(x) == 0)
+    return(switch(as_type, character = NA_character_, numeric = NA_real_, integer = NA_integer_, NA))
+  if (is.list(x)) x <- x[[1]]
+  if (is.null(x) || length(x) == 0)
+    return(switch(as_type, character = NA_character_, numeric = NA_real_, integer = NA_integer_, NA))
+  switch(as_type,
+         character = as.character(x[[1]]),
+         numeric   = suppressWarnings(as.numeric(x[[1]])),
+         integer   = suppressWarnings(as.integer(x[[1]])),
+         x[[1]])
+}
+
+CONTRAST_PAT <- regex(
+  "\\bvs\\.?\\b|\\bverses?\\b|\\bv/s\\b|\\bv\\b|\\band\\b|;|/|\\bgroup\\b",
+  ignore_case = TRUE)
+
+is_short_label_list <- function(g) {
+  if (nchar(g) > 60) return(FALSE)
+  parts <- str_trim(str_split(g, ",")[[1]])
+  parts <- parts[nchar(parts) > 0]
+  if (length(parts) < 2 || length(parts) > 4) return(FALSE)
+  all(sapply(parts, function(p) length(str_split(p, "\\s+")[[1]]) <= 5 && !str_detect(p, "[.;]")))
+}
+
+detect_subgroups <- function(groups_val, g1_val, g2_val) {
+  g  <- if (isTRUE(!is.na(groups_val)) && length(groups_val) > 0) str_trim(as.character(groups_val)) else ""
+  g1 <- if (isTRUE(!is.na(g1_val))    && length(g1_val)    > 0) str_trim(as.character(g1_val))     else ""
+  g2 <- if (isTRUE(!is.na(g2_val))    && length(g2_val)    > 0) str_trim(as.character(g2_val))     else ""
+
+  if (nchar(g) > 0 && is_short_label_list(g)) {
+    parts <- str_trim(str_split(g, ",")[[1]])
+    parts <- parts[nchar(parts) > 0]
+    return(list(has_subgroups = TRUE, n_subgroups = length(parts),
+                names_from_T = parts, name_from_BB = NA_character_, name_from_BC = NA_character_))
+  }
+  if (str_detect(g, regex("\\bsingle\\b", ignore_case = TRUE)) && !str_detect(g, CONTRAST_PAT))
+    return(list(has_subgroups = FALSE, n_subgroups = 0L, names_from_T = character(0),
+                name_from_BB = NA_character_, name_from_BC = NA_character_))
+  if (nchar(g1) > 0 && nchar(g2) > 0)
+    return(list(has_subgroups = TRUE, n_subgroups = 2L, names_from_T = character(0),
+                name_from_BB = g1, name_from_BC = g2))
+  if (nchar(g1) > 0 || nchar(g2) > 0)
+    return(list(has_subgroups = TRUE, n_subgroups = 2L, names_from_T = character(0),
+                name_from_BB = if (nchar(g1) > 0) g1 else NA_character_,
+                name_from_BC = if (nchar(g2) > 0) g2 else NA_character_))
+  parts <- str_trim(str_split(g, regex("\\bvs\\.?\\b|\\bverses?\\b|\\bv/s\\b|;",
+                                       ignore_case = TRUE))[[1]])
+  parts <- parts[nchar(parts) > 0]
+  if (length(parts) >= 2)
+    return(list(has_subgroups = TRUE, n_subgroups = length(parts), names_from_T = parts,
+                name_from_BB = NA_character_, name_from_BC = NA_character_))
+  if (str_detect(g, CONTRAST_PAT))
+    return(list(has_subgroups = TRUE, n_subgroups = NA_integer_, names_from_T = character(0),
+                name_from_BB = NA_character_, name_from_BC = NA_character_))
+  list(has_subgroups = FALSE, n_subgroups = 0L, names_from_T = character(0),
+       name_from_BB = NA_character_, name_from_BC = NA_character_)
+}
+
+combine_subgroup_names <- function(names_from_T, name_from_BB, name_from_BC,
+                                   cell_sub1_label, cell_sub2_label,
+                                   cross_sheet_names = character(0)) {
+  all_names <- c(
+    if (length(names_from_T) > 0) paste0(names_from_T, " [T]") else character(0),
+    if (!is.na(name_from_BB)) paste0(name_from_BB, " [BB]") else NA_character_,
+    if (!is.na(name_from_BC)) paste0(name_from_BC, " [BC]") else NA_character_,
+    cell_sub1_label, cell_sub2_label, cross_sheet_names
+  )
+  all_names <- all_names[!is.na(all_names)]
+  all_names <- str_trim(all_names)
+  all_names <- all_names[nchar(all_names) > 0]
+  if (length(all_names) == 0) return(NA_character_)
+  is_generic <- str_detect(all_names, regex("^group_\\d+(\\s*\\[[^\\]]+\\])?$", ignore_case = TRUE))
+  if (any(is_generic) && any(!is_generic)) all_names <- all_names[!is_generic]
+  bare <- tolower(str_remove(all_names, "\\s*\\[[^\\]]+\\]\\s*$"))
+  all_names <- all_names[!duplicated(bare)]
+  paste(all_names, collapse = "; ")
+}
+
+# Decide whether semicolons in a segment are value separators (IQR Q1;Q3) vs
+# group separators. Returns TRUE when all segments look like stat fragments.
+is_value_semicolon <- function(text) {
+  if (!str_detect(text, ";")) return(FALSE)
+  if (str_detect(text, regex("Q1\\s*;\\s*Q3", ignore_case = TRUE))) return(TRUE)
+  segs <- str_trim(str_split(text, ";")[[1]])
+  segs <- segs[segs != ""]
+  stat_kws <- regex(
+    "^\\s*(SD|IQR|Q[123]|mean|median|medican|average|range|days?|hours?|wks?|weeks?|\\d+\\.?\\d*)\\b",
+    ignore_case = TRUE)
+  value_like <- sapply(segs, function(s) {
+    is_stat <- str_detect(s, stat_kws)
+    words   <- str_extract_all(s, "[a-zA-Z]+")[[1]]
+    non_stat <- words[!str_detect(words, regex(
+      "^(SD|IQR|mean|median|medican|average|range|days?|hours?|wks?|weeks?|and|with|or|the)$",
+      ignore_case = TRUE))]
+    has_group_name <- length(non_stat) >= 2 && str_detect(s, "\\d")
+    is_stat && !has_group_name
+  })
+  all(value_like)
+}
+
+# Detect a format-only header segment (e.g. "median IQR" at start of cell)
+# and return it split from the body. Unlike the age script, there are no
+# age-category prefixes to handle here.
+strip_cell_header <- function(text) {
+  result <- list(header = NA_character_, remainder = text,
+                 header_avg_type = NA_character_, header_disp_type = NA_character_)
+  if (!str_detect(text, ";") && !str_detect(text, "\\bvs\\.?\\b") &&
+      !str_detect(text, "\\.\\s+[A-Z]") && !str_detect(text, "\\s-\\s"))
+    return(result)
+  segs <- str_trim(str_split(text, ";")[[1]])
+  segs <- segs[segs != ""]
+  if (length(segs) < 2) return(result)
+  first <- segs[1]
+  has_format_word <- str_detect(first, regex(
+    "\\b(mean|median|medican|IQR|SD|range|average)\\b", ignore_case = TRUE))
+  # A header segment has format keywords but no leading LOS value of its own
+  has_los_num <- str_detect(first, regex(
+    "\\b\\d+(\\.\\d+)?\\s*(?:days?|hours?|wks?|[\\(\\[\\±])", ignore_case = TRUE))
+  if (has_format_word && !has_los_num) {
+    result$header    <- first
+    result$remainder <- paste(segs[-1], collapse = ";")
+    result$header_avg_type  <- if (str_detect(first, regex("\\bmedian\\b|\\bmedican\\b", ignore_case = TRUE))) "median"
+    else if (str_detect(first, regex("\\bmean\\b",    ignore_case = TRUE))) "mean" else NA_character_
+    result$header_disp_type <- if (str_detect(first, regex("\\bIQR\\b",   ignore_case = TRUE))) "IQR"
+    else if (str_detect(first, regex("\\bSD\\b",      ignore_case = TRUE))) "SD"
+    else if (str_detect(first, regex("\\brange\\b",   ignore_case = TRUE))) "range" else NA_character_
+  }
+  result
+}
+
+# Strip unit suffixes and (n=X) noise, then extract the leading numeric value.
+extract_bare_avg <- function(text) {
+  if (is.na(text) || str_trim(text) == "") return(NA_real_)
+  t <- str_remove_all(text, regex("\\(\\s*n\\s*=\\s*\\d+[^)]*\\)", ignore_case = TRUE))
+  t <- str_replace_all(t, regex("\\b(days?|hrs?|hours?|wks?|weeks?)\\b", ignore_case = TRUE), "")
+  t <- str_trim(t)
+  m <- str_extract(t, "^[^\\d]*(\\d+\\.?\\d*)\\s*(?:[\\(\\[\\±\\+]|$)")
+  if (is.na(m)) return(NA_real_)
+  val <- as.numeric(str_extract(m, "\\d+\\.?\\d*"))
+  if (is_plausible_los(val)) val else NA_real_
+}
+
+# =============================================================================
+# CORE: parse_average_block()
+# Parses one text segment (overall or a single group) into average and
+# dispersion values. Adapted from parse_age_block() v7 with:
+#   - no age-category logic
+#   - value bounds relaxed to any non-negative LOS (is_plausible_los)
+#   - LOS unit words stripped before parsing
+#   - "average" keyword handled alongside mean/median
+# =============================================================================
+parse_average_block <- function(text,
+                                inherit_mean   = NULL,
+                                inherit_median = NULL,
+                                inherit_disp   = NULL) {
+  out <- list(
+    mean_reported           = NA_character_,
+    mean_value              = NA_real_,
+    median_reported         = NA_character_,
+    median_value            = NA_real_,
+    avg_not_specified       = NA_character_,
+    avg_not_specified_value = NA_real_,
+    avg_not_reported        = NA_character_,
+    SD_reported             = NA_character_,
+    SD_value                = NA_real_,
+    IQR_reported            = NA_character_,
+    IQR_value               = NA_real_,
+    IQR_LQR                 = NA_real_,
+    IQR_UQR                 = NA_real_,
+    range_reported          = NA_character_,
+    range_lower             = NA_real_,
+    range_upper             = NA_real_,
+    unspec_reported         = NA_character_,
+    unspec_lower            = NA_real_,
+    unspec_upper            = NA_real_,
+    unspec_disp_value       = NA_real_,
+    dispersion_not_reported = NA_character_,
+    flag_approx             = NA_character_,
+    flag_UQR_lt_LQR         = NA_character_,
+    flag_IQR_with_pm        = NA_character_,
+    flag_unparsed_numbers   = NA_character_
+  )
+
+  if (is.na(text) || str_trim(text) == "") {
+    out$avg_not_reported        <- "Y"
+    out$dispersion_not_reported <- "Y"
+    out[c("mean_reported","median_reported","avg_not_specified",
+          "SD_reported","IQR_reported","range_reported","unspec_reported")] <- "N"
+    out[c("flag_approx","flag_UQR_lt_LQR","flag_IQR_with_pm","flag_unparsed_numbers")] <- "N"
+    return(out)
+  }
+
+  text <- normalise_text(text)
+  out$flag_approx      <- if (str_detect(text, "~")) "Y" else "N"
+  out$flag_IQR_with_pm <- if (str_detect(text, regex("\\bIQR\\b", ignore_case = TRUE)) &&
+                              str_detect(text, "[±]|\\+/?-|\\+-")) "Y" else "N"
+
+  # Strip unit words to simplify number extraction
+  tc <- str_replace_all(text, regex("\\b(days?|hrs?|hours?|wks?|weeks?)\\b", ignore_case = TRUE), "")
+  tc <- str_trim(str_replace_all(tc, "\\s+", " "))
+
+  # -----------------------------------------------------------------------
+  # AVERAGE EXTRACTION
+  # -----------------------------------------------------------------------
+
+  # Remove parenthesised secondary median annotation "(median, X)"
+  median_secondary <- NA_real_
+  sec_m <- str_extract(tc, regex("\\(\\s*median\\s*,?\\s*(\\d+\\.?\\d*)\\s*\\)", ignore_case = TRUE))
+  if (!is.na(sec_m)) median_secondary <- as.numeric(str_extract(sec_m, "\\d+\\.?\\d*$"))
+  tc_no_sec <- str_remove(tc, regex("\\(\\s*median\\s*,?\\s*\\d+\\.?\\d*\\s*\\)", ignore_case = TRUE))
+
+  # --- Mean ---
+  mean_val    <- NA_real_
+  has_mean_kw <- str_detect(tc_no_sec, regex("\\bmean\\b", ignore_case = TRUE))
+
+  if (has_mean_kw) {
+    # "mean +/- SD X ± Y" -> X is mean
+    m <- str_extract(tc_no_sec, regex("\\bmean\\s*\\+/?-\\s*SD\\s+(\\d+\\.?\\d*)", ignore_case = TRUE))
+    if (!is.na(m)) mean_val <- as.numeric(str_extract(m, "\\d+\\.?\\d*$"))
+
+    # Pattern A: keyword + optional words + number
+    if (is.na(mean_val)) {
+      m <- str_extract(tc_no_sec, regex(
+        "\\bmean\\s*(?:length\\s*of\\s*stay|los|age(?:d|s)?)?\\s*(?:(?:was|were|of|at)\\s*)?[~=:]?\\s*(\\d+\\.?\\d*)",
+        ignore_case = TRUE))
+      if (!is.na(m)) { v <- as.numeric(str_extract(m, "\\d+\\.?\\d*$")); if (is_plausible_los(v)) mean_val <- v }
+    }
+    # Pattern B: "Mean 7.5"
+    if (is.na(mean_val)) {
+      m <- str_extract(tc_no_sec, regex("\\bmean\\s+(\\d+\\.?\\d*)\\b", ignore_case = TRUE))
+      if (!is.na(m)) { v <- as.numeric(str_extract(m, "\\d+\\.?\\d*")); if (is_plausible_los(v)) mean_val <- v }
+    }
+    # Pattern C: "7.5 (mean)"
+    if (is.na(mean_val)) {
+      m <- str_extract(tc_no_sec, regex("(\\d+\\.?\\d*)\\s*\\(\\s*mean\\s*\\)", ignore_case = TRUE))
+      if (!is.na(m)) { v <- as.numeric(str_extract(m, "^\\d+\\.?\\d*")); if (is_plausible_los(v)) mean_val <- v }
+    }
+    # Pattern D: "Mean (SD) X"
+    if (is.na(mean_val)) {
+      m <- str_extract(tc_no_sec, regex(
+        "\\bmean\\s*\\([^)]*\\)\\s*[=:]?\\s*(\\d+\\.?\\d*)", ignore_case = TRUE))
+      if (!is.na(m)) { v <- as.numeric(str_extract(m, "\\d+\\.?\\d*$")); if (is_plausible_los(v)) mean_val <- v }
+    }
+    # Pattern E: fallback bare number after keyword
+    if (is.na(mean_val)) {
+      stripped <- str_remove(tc_no_sec, regex(
+        ".*?\\bmean\\b\\s*(?:length\\s*of\\s*stay|los)?\\s*[=:,]?\\s*", ignore_case = TRUE))
+      stripped <- str_remove(stripped, regex("^\\s*\\([^\\d)]*\\)\\s*", ignore_case = TRUE))
+      stripped <- str_remove_all(stripped, regex("\\(\\s*n\\s*=\\s*\\d+[^)]*\\)", ignore_case = TRUE))
+      m <- str_extract(stripped, "^[^\\d]*(\\d+\\.?\\d*)")
+      if (!is.na(m)) { v <- as.numeric(str_extract(m, "\\d+\\.?\\d*")); if (is_plausible_los(v)) mean_val <- v }
+    }
+  }
+
+  # --- Median ---
+  median_val    <- NA_real_
+  has_median_kw <- str_detect(tc, regex("\\bmedian\\b|\\bmedican\\b", ignore_case = TRUE))
+
+  if (has_median_kw) {
+    # Pattern 1: non-greedy skip to first plausible number after keyword
+    tc_no_n <- str_remove_all(tc, regex("\\(\\s*n\\s*=\\s*\\d+[^)]*\\)", ignore_case = TRUE))
+    m <- str_extract(tc_no_n, regex(
+      "\\b(?:median|medican)\\b[^0-9]*?(\\b\\d{1,5}(?:\\.\\d+)?\\b)", ignore_case = TRUE))
+    if (!is.na(m)) { val <- as.numeric(str_extract(m, "[\\d.]+$")); if (is_plausible_los(val)) median_val <- val }
+
+    # Pattern 2: number BEFORE keyword
+    if (is.na(median_val)) {
+      m <- str_extract(tc, regex("(\\d+\\.?\\d*)\\s*(?:\\([^)]*\\))?\\s*(?:median|medican)", ignore_case = TRUE))
+      if (!is.na(m)) { val <- as.numeric(str_extract(m, "^\\d+\\.?\\d*")); if (is_plausible_los(val)) median_val <- val }
+    }
+    # Pattern 3: "(Median ± SD)" label — first number in cell is median
+    if (is.na(median_val)) {
+      if (str_detect(tc, regex("\\(\\s*(?:median|medican)\\s*[±]", ignore_case = TRUE))) {
+        first_num <- str_extract(tc, "\\d+\\.?\\d*")
+        if (!is.na(first_num)) { val <- as.numeric(first_num); if (is_plausible_los(val)) median_val <- val }
+      }
+    }
+    # Pattern 4: "Median ~7"
+    if (is.na(median_val)) {
+      m <- str_extract(tc, regex("\\bmedian\\b\\s*~\\s*(\\d+\\.?\\d*)", ignore_case = TRUE))
+      if (!is.na(m)) { val <- as.numeric(str_extract(m, "\\d+\\.?\\d*$")); if (is_plausible_los(val)) median_val <- val }
+    }
+  }
+
+  if (!is.na(median_secondary) && is.na(median_val)) median_val <- median_secondary
+
+  # --- Average not specified ---
+  avg_ns_val  <- NA_real_
+  has_avg_kw  <- str_detect(tc, regex("\\baverage\\b", ignore_case = TRUE))
+
+  if (!has_mean_kw && !has_median_kw) {
+    avg_ns_val <- extract_bare_avg(tc)
+  } else if (has_avg_kw && !has_mean_kw) {
+    m <- str_extract(tc, regex(
+      "\\baverage\\s*(?:length\\s*of\\s*stay|los)?\\s*[=:]?\\s*(\\d+\\.?\\d*)", ignore_case = TRUE))
+    if (!is.na(m)) { v <- as.numeric(str_extract(m, "\\d+\\.?\\d*$")); if (is_plausible_los(v)) avg_ns_val <- v }
+  }
+
+  # Assign average flags
+  out$mean_reported           <- if (!is.na(mean_val)    || has_mean_kw)   "Y" else "N"
+  out$mean_value              <- mean_val
+  out$median_reported         <- if (!is.na(median_val)  || has_median_kw) "Y" else "N"
+  out$median_value            <- median_val
+  out$avg_not_specified       <- if (!is.na(avg_ns_val)  || has_avg_kw)    "Y" else "N"
+  out$avg_not_specified_value <- avg_ns_val
+  out$avg_not_reported        <- if (out$mean_reported == "N" &&
+                                     out$median_reported == "N" &&
+                                     out$avg_not_specified == "N") "Y" else "N"
+
+  # Inheritance: propagate avg type from overall/cell header to subgroups
+  if (isTRUE(out$avg_not_reported == "Y") || isTRUE(out$avg_not_specified == "Y")) {
+    bare_val <- if (isTRUE(out$avg_not_reported == "Y")) extract_bare_avg(tc) else avg_ns_val
+    if (!is.null(inherit_median) && isTRUE(inherit_median == "Y") &&
+        isTRUE(out$median_reported == "N")) {
+      out$median_reported  <- "Y"
+      out$median_value     <- bare_val
+      out$avg_not_reported <- "N"
+      if (isTRUE(out$avg_not_specified == "Y") && identical(out$avg_not_specified_value, bare_val)) {
+        out$avg_not_specified <- "N"; out$avg_not_specified_value <- NA_real_
+      }
+      out$median_value <- bare_val  # re-assign after potential clearing
+    } else if (!is.null(inherit_mean) && isTRUE(inherit_mean == "Y") &&
+               isTRUE(out$mean_reported == "N")) {
+      out$mean_reported    <- "Y"
+      out$mean_value       <- bare_val
+      out$avg_not_reported <- "N"
+      if (isTRUE(out$avg_not_specified == "Y") && identical(out$avg_not_specified_value, bare_val)) {
+        out$avg_not_specified <- "N"; out$avg_not_specified_value <- NA_real_
+      }
+      out$mean_value <- bare_val
+    }
+  }
+
+  # post_avg_text: everything after the average value, used for dispersion search
+  avg_used <- coalesce_val(mean_val, median_val, avg_ns_val,
+                           out$mean_value, out$median_value, out$avg_not_specified_value)
+  post_avg <- tc
+  if (!is.na(avg_used)) {
+    pos <- str_locate(tc, fixed(as.character(avg_used)))[1, "end"]
+    if (!is.na(pos)) post_avg <- substr(tc, pos + 1, nchar(tc))
+  }
+
+  # -----------------------------------------------------------------------
+  # DISPERSION EXTRACTION
+  # -----------------------------------------------------------------------
+  has_iqr   <- str_detect(tc, regex("\\bIQR\\b|Q1.*Q3|25/?75%?\\s*IQR", ignore_case = TRUE))
+  has_range <- str_detect(tc, regex("\\brange[d]?\\b", ignore_case = TRUE))
+  has_sd_kw <- str_detect(tc, regex("\\bSD\\b|[±]|\\+\\s*/?\\s*-|\\+-"))
+
+  # --- SD ---
+  sd_val <- NA_real_
+  # "mean +/- SD X ± Y" -> Y is SD
+  m <- str_extract(tc, regex(
+    "\\bmean\\s*\\+/?-\\s*SD\\s+\\d+\\.?\\d*\\s*(?:[±]|\\+/?-)\\s*(\\d+\\.?\\d*)", ignore_case = TRUE))
+  if (!is.na(m)) { nums <- as.numeric(str_extract_all(m, "\\d+\\.?\\d*")[[1]]); if (length(nums) >= 2) sd_val <- nums[length(nums)] }
+
+  if (is.na(sd_val) && has_sd_kw) {
+    # "(SD) X" or "(SD X)"
+    m <- str_extract(post_avg, regex(
+      "\\(\\s*SD\\s*\\)\\s*[=:]?\\s*(\\d+\\.?\\d*)|\\(\\s*SD\\s+(\\d+\\.?\\d*)\\s*\\)", ignore_case = TRUE))
+    if (!is.na(m)) { nums <- str_extract_all(m, "\\d+\\.?\\d*")[[1]]; if (length(nums) > 0) sd_val <- as.numeric(nums[length(nums)]) }
+    # Single bracketed number after avg (fallback when no IQR keyword)
+    if (is.na(sd_val) && !has_iqr) {
+      m <- str_extract(post_avg, "\\(\\s*(\\d+\\.?\\d*)\\s*\\)")
+      if (!is.na(m)) { v <- as.numeric(str_extract(m, "\\d+\\.?\\d*")); if (!is.na(v) && !str_detect(m, "[,;\\-]")) sd_val <- v }
+    }
+  }
+  if (is.na(sd_val) && !has_iqr) {
+    m <- str_extract(post_avg, regex("\\bSD\\b\\s*(\\d+\\.?\\d*)", ignore_case = TRUE))
+    if (!is.na(m)) sd_val <- as.numeric(str_extract(m, "\\d+\\.?\\d*$"))
+  }
+  if (is.na(sd_val) && !has_iqr) {
+    m <- str_extract(post_avg, regex("(?:[±]|\\+\\s*/?\\s*-|\\+-|plus\\s*/?\\s*minus)\\s*(\\d+\\.?\\d*)"))
+    if (!is.na(m)) sd_val <- as.numeric(str_extract(m, "\\d+\\.?\\d*$"))
+  }
+  if (is.na(sd_val) && !has_iqr) {
+    m <- str_extract(post_avg, regex("(?<![+/\\-])\\+(?![+/\\-])\\s*(\\d+\\.?\\d*)"))
+    if (!is.na(m)) sd_val <- as.numeric(str_extract(m, "\\d+\\.?\\d*$"))
+  }
+  # "(Median ± SD)" label: number BEFORE bracket is SD
+  if (is.na(sd_val) && str_detect(tc, regex("\\(\\s*(?:median|medican)\\s*[±]", ignore_case = TRUE))) {
+    m <- str_extract(tc, regex("(\\d+\\.?\\d*)\\s*\\(\\s*(?:median|medican)\\s*[±]", ignore_case = TRUE))
+    if (!is.na(m)) sd_val <- as.numeric(str_extract(m, "^\\d+\\.?\\d*"))
+  }
+
+  # --- IQR ---
+  iqr_val <- NA_real_; iqr_lo <- NA_real_; iqr_hi <- NA_real_
+  if (has_iqr) {
+    m <- str_extract(tc, regex(
+      "(?:IQR|Q1\\s*[;,]?\\s*Q3|25/?75%?\\s*IQR)\\s*[:\\(\\[]?\\s*(\\d+\\.?\\d*)\\s*(?:[-,;]|to)\\s*(\\d+\\.?\\d*)",
+      ignore_case = TRUE))
+    if (!is.na(m)) { nums <- as.numeric(str_extract_all(m, "\\d+\\.?\\d*")[[1]]); if (length(nums) >= 2) { iqr_lo <- nums[1]; iqr_hi <- nums[2] } }
+    if (is.na(iqr_lo)) {
+      m <- str_extract(post_avg, "[\\(\\[]\\s*(\\d+\\.?\\d*)\\s*[,;\\-]\\s*(\\d+\\.?\\d*)\\s*[\\)\\]]")
+      if (!is.na(m)) { nums <- as.numeric(str_extract_all(m, "\\d+\\.?\\d*")[[1]]); if (length(nums) >= 2) { iqr_lo <- nums[1]; iqr_hi <- nums[2] } }
+    }
+    if (is.na(iqr_lo)) {
+      m <- str_extract(post_avg, regex(
+        "IQR\\s*:?\\s*(\\d+\\.?\\d*)|(?:[±]|\\+\\s*/?\\s*-|\\+-)\\s*(\\d+\\.?\\d*)", ignore_case = TRUE))
+      if (!is.na(m)) { nums <- as.numeric(str_extract_all(m, "\\d+\\.?\\d*")[[1]]); if (length(nums) > 0) iqr_val <- nums[length(nums)] }
+    }
+    # Inherited IQR: single bracketed value
+    if (is.na(iqr_lo) && is.na(iqr_val) && !is.null(inherit_disp) && isTRUE(inherit_disp == "IQR")) {
+      m <- str_extract(post_avg, "\\(\\s*(\\d+\\.?\\d*)\\s*\\)")
+      if (!is.na(m)) { v <- as.numeric(str_extract(m, "\\d+\\.?\\d*")); if (!is.na(v) && !str_detect(m, "[,;\\-]")) iqr_val <- v }
+    }
+  }
+
+  # --- Range ---
+  rng_lo <- NA_real_; rng_hi <- NA_real_
+  if (has_range) {
+    m <- str_extract(tc, regex("range[d]?\\s*(?:from)?\\s*(\\d+\\.?\\d*)\\s*(?:[-,]|to)\\s*(\\d+\\.?\\d*)", ignore_case = TRUE))
+    if (!is.na(m)) {
+      nums <- as.numeric(str_extract_all(m, "\\d+\\.?\\d*")[[1]]); if (length(nums) >= 2) { rng_lo <- nums[1]; rng_hi <- nums[2] }
+    } else {
+      m2 <- str_extract(tc, regex(
+        "\\(\\s*range\\s*\\)[^\\d]*(\\d+\\.?\\d*)[^\\d]+(\\d+\\.?\\d*)\\s*(?:to|-|,)\\s*(\\d+\\.?\\d*)", ignore_case = TRUE))
+      if (!is.na(m2)) {
+        nums <- as.numeric(str_extract_all(m2, "\\d+\\.?\\d*")[[1]]); if (length(nums) >= 3) { rng_lo <- nums[2]; rng_hi <- nums[3] }
+      } else {
+        # Fallback: bracketed pair in post_avg_text
+        m3 <- str_extract(post_avg, "[\\(\\[]\\s*(\\d+\\.?\\d*)\\s*[-,;]\\s*(\\d+\\.?\\d*)\\s*[\\)\\]]")
+        if (!is.na(m3)) { nums <- as.numeric(str_extract_all(m3, "\\d+\\.?\\d*")[[1]]); if (length(nums) >= 2) { rng_lo <- nums[1]; rng_hi <- nums[2] } }
+      }
+    }
+  }
+
+  # --- Unspecified dispersion ---
+  unspec_lo <- NA_real_; unspec_hi <- NA_real_; unspec_val <- NA_real_
+
+  # Bare "X - Y" with nothing else (whole cell is a range with no keyword)
+  m_bare <- str_extract(str_trim(tc), "^\\s*(\\d+\\.?\\d*)\\s*-\\s*(\\d+\\.?\\d*)\\s*$")
+  if (!is.na(m_bare)) {
+    nums <- as.numeric(str_extract_all(m_bare, "\\d+\\.?\\d*")[[1]])
+    if (length(nums) == 2) { unspec_lo <- nums[1]; unspec_hi <- nums[2] }
+  }
+
+  has_any_kw <- str_detect(tc, regex("\\bSD\\b|\\bIQR\\b|\\brange\\b|\\bQ1\\b|[±]|\\+/?-", ignore_case = TRUE))
+  if (is.na(unspec_lo) && !has_any_kw) {
+    # Single bracketed value immediately after average
+    m_s <- str_extract(post_avg, "^\\s*\\(\\s*(\\d+\\.?\\d*)\\s*\\)")
+    if (!is.na(m_s) && !str_detect(m_s, "[,;\\-]")) {
+      unspec_val <- as.numeric(str_extract(m_s, "\\d+\\.?\\d*"))
+    } else {
+      # Bracketed pair
+      m_p <- str_extract(post_avg, "[\\(\\[]\\s*(\\d+\\.?\\d*)\\s*[-,;]\\s*(\\d+\\.?\\d*)\\s*[\\)\\]]")
+      if (!is.na(m_p)) { nums <- as.numeric(str_extract_all(m_p, "\\d+\\.?\\d*")[[1]]); if (length(nums) >= 2) { unspec_lo <- nums[1]; unspec_hi <- nums[2] } }
+    }
+  }
+
+  # -----------------------------------------------------------------------
+  # ASSIGN DISPERSION FLAGS
+  # -----------------------------------------------------------------------
+  any_disp <- FALSE
+
+  if (!is.na(sd_val)) {
+    out$SD_reported <- "Y"; out$SD_value <- sd_val; any_disp <- TRUE
+  } else { out$SD_reported <- "N" }
+
+  if (has_iqr) {
+    out$IQR_reported <- "Y"; any_disp <- TRUE
+    out$IQR_LQR <- iqr_lo; out$IQR_UQR <- iqr_hi; out$IQR_value <- iqr_val
+    if (!is.na(rng_lo)) { out$range_reported <- "Y"; out$range_lower <- rng_lo; out$range_upper <- rng_hi }
+  } else { out$IQR_reported <- "N" }
+
+  if (!is.na(rng_lo) && !isTRUE(out$range_reported == "Y")) {
+    out$range_reported <- "Y"; out$range_lower <- rng_lo; out$range_upper <- rng_hi; any_disp <- TRUE
+  } else if (!isTRUE(out$range_reported == "Y")) { out$range_reported <- "N" }
+
+  if (!is.na(unspec_lo) || !is.na(unspec_val)) {
+    out$unspec_reported   <- "Y"
+    out$unspec_lower      <- unspec_lo
+    out$unspec_upper      <- unspec_hi
+    out$unspec_disp_value <- unspec_val
+    any_disp <- TRUE
+  } else { out$unspec_reported <- "N" }
+
+  out$dispersion_not_reported <- if (any_disp) "N" else "Y"
+
+  # Inherit dispersion type when not found in this segment
+  if (isTRUE(out$dispersion_not_reported == "Y") && !is.null(inherit_disp)) {
+    if (isTRUE(inherit_disp == "IQR"))   { out$IQR_reported   <- "Y"; out$dispersion_not_reported <- "N" }
+    if (isTRUE(inherit_disp == "SD"))    { out$SD_reported    <- "Y"; out$dispersion_not_reported <- "N" }
+    if (isTRUE(inherit_disp == "range")) { out$range_reported <- "Y"; out$dispersion_not_reported <- "N" }
+  }
+  # Move unspec into IQR columns when IQR is inherited
+  if (!is.null(inherit_disp) && isTRUE(inherit_disp == "IQR") && isTRUE(out$unspec_reported == "Y")) {
+    out$IQR_reported <- "Y"; out$dispersion_not_reported <- "N"
+    if (!is.na(out$unspec_lower))     { out$IQR_LQR <- out$unspec_lower; out$IQR_UQR <- out$unspec_upper; out$unspec_lower <- NA_real_; out$unspec_upper <- NA_real_ }
+    if (!is.na(out$unspec_disp_value)) { out$IQR_value <- out$unspec_disp_value; out$unspec_disp_value <- NA_real_ }
+    out$unspec_reported <- "N"
+  }
+
+  out$flag_UQR_lt_LQR <- if (!is.na(iqr_lo) && !is.na(iqr_hi) && iqr_hi < iqr_lo) "Y" else "N"
+
+  # Flag numbers that could not be placed into any output field
+  all_raw  <- as.numeric(str_extract_all(tc, "\\d+\\.?\\d*")[[1]])
+  all_raw  <- all_raw[!is.na(all_raw)]
+  out_nums <- unlist(out[sapply(out, is.numeric)])
+  out_nums <- as.numeric(out_nums[!is.na(out_nums)])
+  out$flag_unparsed_numbers <- if (length(all_raw) > (length(out_nums) + 1)) "Y" else "N"
+
+  out
+}
+
+# =============================================================================
+# split_groups(): detect overall vs subgroup segments in one cell
+# Adapted from the age v7 script — category/age logic removed, unit words
+# ("days", "hours") stripped from group-name extraction.
+# =============================================================================
+split_groups <- function(text) {
+  empty <- list(
+    overall_reported   = NA_character_,
+    subgroups_reported = NA_character_,
+    group_1_name       = NA_character_,
+    group_2_name       = NA_character_,
+    overall_text       = NA_character_,
+    group_1_text       = NA_character_,
+    group_2_text       = NA_character_,
+    cell_avg_type      = NA_character_,
+    cell_disp_type     = NA_character_
+  )
+  if (is.na(text) || str_trim(text) == "") return(empty)
+
+  text_orig <- normalise_text(text)
+  text_work <- str_remove_all(text_orig, '^"|"$')
+  text_work <- normalise_text(text_work)
+
+  header_info  <- strip_cell_header(text_work)
+  working_text <- normalise_text(header_info$remainder)
+
+  cell_avg_type  <- header_info$header_avg_type
+  cell_disp_type <- header_info$header_disp_type
+  if (is.na(cell_avg_type))
+    cell_avg_type  <- if (str_detect(text_work, regex("\\bmedian\\b|\\bmedican\\b", ignore_case = TRUE))) "median"
+  else if (str_detect(text_work, regex("\\bmean\\b", ignore_case = TRUE))) "mean" else NA_character_
+  if (is.na(cell_disp_type))
+    cell_disp_type <- if (str_detect(text_work, regex("\\bIQR\\b",   ignore_case = TRUE))) "IQR"
+  else if (str_detect(text_work, regex("\\bSD\\b",    ignore_case = TRUE))) "SD"
+  else if (str_detect(text_work, regex("\\brange\\b", ignore_case = TRUE))) "range" else NA_character_
+
+  # Extract "overall" segment if explicitly labelled
+  has_overall_kw <- str_detect(working_text, regex("\\boverall\\b", ignore_case = TRUE))
+  overall_text   <- NA_character_
+  remaining_text <- working_text
+
+  if (has_overall_kw) {
+    segs   <- str_trim(str_split(working_text, ";")[[1]])
+    segs   <- segs[segs != ""]
+    ov_idx <- which(str_detect(segs, regex("\\boverall\\b", ignore_case = TRUE)))
+    if (length(ov_idx) > 0) {
+      overall_text   <- segs[ov_idx[1]]
+      remaining_text <- paste(segs[-ov_idx], collapse = ";")
+    }
+  }
+
+  group_segs <- character(0)
+
+  # Pattern F: bQ/bM short-label pairs (must run before Pattern B)
+  if (length(group_segs) == 0) {
+    bq_bm <- str_match(remaining_text, regex("(\\b[a-z]{1,3}Q\\b.+?)(\\b[a-z]{1,3}M\\b.+)", ignore_case = TRUE))
+    if (!is.na(bq_bm[1, 1])) group_segs <- c(str_trim(bq_bm[1, 2]), str_trim(bq_bm[1, 3]))
+  }
+  # Pattern B: (n=X) boundaries
+  if (length(group_segs) == 0 &&
+      str_count(remaining_text, regex("\\(n\\s*=\\s*\\d+\\)")) >= 2) {
+    parts <- str_trim(unlist(str_split(remaining_text, regex("(?<=\\d\\)\\s{0,3})(?=[a-zA-Z])"))))
+    parts <- parts[parts != "" & str_detect(parts, "\\d")]
+    if (length(parts) >= 2) group_segs <- parts
+  }
+  # Pattern C: semicolons (when not value-separators)
+  if (length(group_segs) == 0 && str_detect(remaining_text, ";")) {
+    if (!is_value_semicolon(remaining_text)) {
+      segs <- str_trim(str_split(remaining_text, ";")[[1]])
+      segs <- segs[segs != ""]
+      if (length(segs) >= 2) group_segs <- segs
+    }
+  }
+  # Pattern D: "vs"
+  if (length(group_segs) == 0 &&
+      str_detect(remaining_text, regex("\\bvs\\.?\\b", ignore_case = TRUE))) {
+    segs <- str_trim(str_split(remaining_text, regex("\\bvs\\.?\\b", ignore_case = TRUE))[[1]])
+    segs <- segs[segs != ""]
+    if (length(segs) >= 2) group_segs <- segs
+  }
+  # Pattern E: sentence split on ". word"
+  if (length(group_segs) == 0 && str_detect(remaining_text, "\\.\\s+\\w")) {
+    segs <- str_trim(str_split(remaining_text, "(?<=\\.)\\s+(?=\\w)")[[1]])
+    segs <- segs[segs != ""]
+    pronouns <- regex("^(Their|His|Her|Its|The|A|An|This|These|Those)\\b", ignore_case = FALSE)
+    merged <- character(0)
+    for (s in segs) {
+      if (length(merged) > 0 && str_detect(s, pronouns)) merged[length(merged)] <- paste(merged[length(merged)], s)
+      else merged <- c(merged, s)
+    }
+    if (length(merged) >= 2) group_segs <- merged
+  }
+
+  if (length(group_segs) <= 1 && is.na(overall_text)) {
+    overall_text <- text_orig
+    group_segs   <- character(0)
+  }
+
+  # Extract group name from one segment
+  extract_group_name <- function(seg) {
+    seg       <- str_trim(seg)
+    seg_clean <- str_remove(seg, regex("\\(n\\s*=\\s*\\d+[^)]*\\)\\s*:?\\s*", ignore_case = TRUE))
+    # Bracketed name at end
+    end_brk <- str_extract(seg_clean, regex("\\(\\s*([A-Z][A-Za-z0-9\\-\\s]+)\\s*\\)\\s*$"))
+    if (!is.na(end_brk)) { nm <- str_trim(str_remove_all(end_brk, "[\\(\\)]")); if (nchar(nm) >= 2) return(nm) }
+    # Plain words at end after numbers/brackets
+    end_words <- str_extract(seg_clean, regex("(?:[\\d\\s\\(\\)\\[\\].,;\\u00b1+-]+)([a-zA-Z][a-zA-Z\\s-]+)$"))
+    if (!is.na(end_words)) {
+      nm <- str_trim(str_extract(end_words, "[a-zA-Z][a-zA-Z\\s-]+$"))
+      if (!is.na(nm) && nchar(nm) >= 3 &&
+          !str_detect(nm, regex("^(days?|hours?|wks?|weeks?|SD|IQR|range|mean|median|average)$", ignore_case = TRUE)))
+        return(str_trim(nm))
+    }
+    # Strip leading stat keywords
+    seg_clean <- str_remove(seg_clean, regex("^(mean|median|medican|average|IQR|SD)\\s*[:\\s]*", ignore_case = TRUE))
+    # Bracketed name at start
+    brk_start <- str_extract(seg_clean, "^\\(\\s*([A-Z][A-Za-z0-9\\-]+)\\s*\\)")
+    if (!is.na(brk_start)) return(str_trim(str_remove_all(brk_start, "[\\(\\)]")))
+    # Bracketed name mid-segment
+    brk_mid <- str_extract(seg_clean, "\\(\\s*([A-Z][A-Za-z0-9\\-]+)\\s*\\)")
+    if (!is.na(brk_mid)) {
+      nm <- str_trim(str_remove_all(brk_mid, "[\\(\\)]"))
+      if (nchar(nm) >= 2 && !str_detect(nm, regex("^(IQR|SD|range|mean|median)$", ignore_case = TRUE))) return(nm)
+    }
+    # Text before first digit or colon
+    raw_nm <- str_extract(seg_clean, "^[^\\d:]+")
+    if (is.na(raw_nm)) return(NA_character_)
+    cleaned <- str_remove(raw_nm, regex("\\s*(days?|hours?|wks?|weeks?)\\s*$", ignore_case = TRUE))
+    cleaned <- str_remove(cleaned, regex("\\s*\\(\\s*(range|IQR|SD|mean|median)\\s*\\)\\s*$", ignore_case = TRUE))
+    cleaned <- str_remove(cleaned, regex("\\s*(mean|median|IQR|SD|average)\\s*:?\\s*$", ignore_case = TRUE))
+    cleaned <- str_trim(str_remove(cleaned, ":\\s*$"))
+    if (nchar(cleaned) == 0 || str_detect(cleaned, "^[\\d>=<]")) return(NA_character_)
+    cleaned
+  }
+
+  g1_name <- NA_character_; g2_name <- NA_character_
+  g1_text <- NA_character_; g2_text <- NA_character_
+  if (length(group_segs) >= 1) { g1_name <- extract_group_name(group_segs[1]); g1_text <- group_segs[1] }
+  if (length(group_segs) >= 2) { g2_name <- extract_group_name(group_segs[2]); g2_text <- group_segs[2] }
+
+  list(
+    overall_reported   = if (!is.na(overall_text))    "Y" else "N",
+    subgroups_reported = if (length(group_segs) >= 2) "Y" else "N",
+    group_1_name       = g1_name,
+    group_2_name       = g2_name,
+    overall_text       = overall_text,
+    group_1_text       = g1_text,
+    group_2_text       = g2_text,
+    cell_avg_type      = cell_avg_type,
+    cell_disp_type     = cell_disp_type
+  )
+}
+
+# =============================================================================
+# parse_average_cell(): top-level function for one cell
+# =============================================================================
+parse_average_cell <- function(text) {
+  groups       <- split_groups(text)
+  overall_data <- parse_average_block(groups$overall_text)
+
+  inh_mean   <- if (isTRUE(overall_data$mean_reported   == "Y")) "Y"
+  else if (!is.na(groups$cell_avg_type) && groups$cell_avg_type == "mean")   "Y" else "N"
+  inh_median <- if (isTRUE(overall_data$median_reported == "Y")) "Y"
+  else if (!is.na(groups$cell_avg_type) && groups$cell_avg_type == "median") "Y" else "N"
+  inh_disp   <- if (isTRUE(overall_data$IQR_reported == "Y"))  "IQR"
+  else if (isTRUE(overall_data$SD_reported  == "Y"))  "SD"
+  else if (!is.na(groups$cell_disp_type))              groups$cell_disp_type
+  else NULL
+
+  g1_data <- parse_average_block(groups$group_1_text,
+                                 inherit_mean = inh_mean, inherit_median = inh_median, inherit_disp = inh_disp)
+  g2_data <- parse_average_block(groups$group_2_text,
+                                 inherit_mean = inh_mean, inherit_median = inh_median, inherit_disp = inh_disp)
+
+  c(
+    list(overall_reported   = groups$overall_reported,
+         subgroups_reported = groups$subgroups_reported,
+         group_1_name       = groups$group_1_name,
+         group_2_name       = groups$group_2_name),
+    setNames(overall_data, paste0("overall_",  names(overall_data))),
+    setNames(g1_data,      paste0("group_1_",  names(g1_data))),
+    setNames(g2_data,      paste0("group_2_",  names(g2_data)))
+  )
+}
+
+# =============================================================================
+# PART 1: Read data
+# =============================================================================
+df <- read.xlsx(input_path, sheet = 1, check.names = FALSE, sep.names = " ")
+
+# Coerce all columns to character for uniform string parsing
+df[] <- lapply(df, function(col) {
+  if (is.numeric(col)) {
+    # Remove floating-point noise from Excel numeric representation
+    vapply(col, function(x) if (is.na(x)) NA_character_ else as.character(signif(x, 10)), character(1))
+  } else {
+    as.character(col)
+  }
+})
+
+expected_cols <- c(COL_STUDY_NUM, COL_AUTHORS, COL_YEAR, COL_GROUPS, COL_GROUP1, COL_GROUP2, COL_AGE,
+                   unlist(lapply(AVERAGE_COLS, function(x) x[[2]])))
+missing_cols  <- setdiff(expected_cols, colnames(df))
+if (length(missing_cols) > 0)
+  warning("The following expected columns were NOT found in the data: ",
+          paste(missing_cols, collapse = ", "))
+
+# =============================================================================
+# PART 2: Cross-sheet subgroup name pre-scan
+# Names found in any column's cell text are tagged and made available to
+# all columns for the same study, so all_subgroup_names is complete
+# regardless of which column a name was first encountered in.
+# =============================================================================
+cell_level_names_by_study <- new.env(hash = TRUE)
+
+for (col_def in AVERAGE_COLS) {
+  existing_cols <- intersect(col_def[[2]], colnames(df))
+  if (length(existing_cols) == 0) next
+  tag <- existing_cols[1]
+
+  for (i in seq_len(nrow(df))) {
+    study_key <- scalar_val(df[i, ][[COL_STUDY_NUM]], "character")
+    if (is.na(study_key) || nchar(study_key) == 0) next
+    cell_val  <- scalar_val(df[i, existing_cols[1]], "character")
+    parsed    <- parse_average_cell(cell_val)
+    found <- c(parsed$group_1_name, parsed$group_2_name)
+    found <- found[!is.na(found) & !str_detect(found, regex("^group_\\d+$", ignore_case = TRUE))]
+    if (length(found) == 0) next
+    tagged   <- paste0(found, " [", tag, "]")
+    existing <- if (exists(study_key, envir = cell_level_names_by_study, inherits = FALSE))
+      get(study_key, envir = cell_level_names_by_study) else character(0)
+    assign(study_key, c(existing, tagged), envir = cell_level_names_by_study)
+  }
+}
+
+get_cell_level_names_for_study <- function(study_key) {
+  if (is.na(study_key) ||
+      !exists(study_key, envir = cell_level_names_by_study, inherits = FALSE)) return(character(0))
+  get(study_key, envir = cell_level_names_by_study)
+}
+
+# =============================================================================
+# PART 3: Process each average column
+# =============================================================================
+all_sheet_data <- list()
+
+for (col_def in AVERAGE_COLS) {
+  sheet_name    <- col_def[[1]]
+  src_col_names <- col_def[[2]]
+  cat("Processing", sheet_name, "...\n")
+
+  existing_cols <- intersect(src_col_names, colnames(df))
+  if (length(existing_cols) == 0) {
+    message("  No source columns found for ", sheet_name, " -- skipping.")
+    next
+  }
+  current_tag <- existing_cols[1]
+
+  rows_out <- vector("list", nrow(df))
+
+  for (i in seq_len(nrow(df))) {
+    row      <- df[i, ]
+    cell_val <- scalar_val(row[[existing_cols[1]]], "character")
+
+    study_num <- scalar_val(row[[COL_STUDY_NUM]], "character")
+    study_ref <- build_study_reference(scalar_val(row[[COL_AUTHORS]], "character"),
+                                       scalar_val(row[[COL_YEAR]],    "character"))
+
+    sub_info <- detect_subgroups(
+      scalar_val(row[[COL_GROUPS]], "character"),
+      scalar_val(row[[COL_GROUP1]], "character"),
+      scalar_val(row[[COL_GROUP2]], "character"))
+
+    parsed <- parse_average_cell(cell_val)
+
+    # ---- Flags ----
+    flag_not      <- if (!is.na(cell_val) && str_detect(cell_val, regex("\\bnot\\b", ignore_case = TRUE))) "Y" else "N"
+    flag_question <- if (!is.na(cell_val) && str_detect(cell_val, "\\?")) "Y" else "N"
+
+    # Flag: cell looks like it contains proportion data (N/M fraction, %, or 0.x decimal)
+    flag_prop_data <- if (!is.na(cell_val) &&
+                          (str_detect(cell_val, "\\d+\\s*/\\s*\\d+") ||
+                           str_detect(cell_val, "%") ||
+                           str_detect(cell_val, "\\b0\\.\\d+"))) "Y" else "N"
+
+    # Flag: numbers in raw cell that were not captured in any parsed output field
+    all_raw_nums <- if (!is.na(cell_val))
+      as.numeric(str_extract_all(normalise_text(cell_val), "\\d+\\.?\\d*")[[1]]) else numeric(0)
+    out_nums_all <- as.numeric(unlist(lapply(names(parsed), function(nm) {
+      v <- parsed[[nm]]; if (is.numeric(v) && !is.na(v)) v else NULL
+    })))
+    out_nums_all <- out_nums_all[!is.na(out_nums_all)]
+    unused_nums  <- all_raw_nums[!sapply(all_raw_nums, function(n) any(abs(n - out_nums_all) < 0.001, na.rm = TRUE))]
+    flag_unused  <- if (length(unused_nums) > 0) "Y" else "N"
+
+    # Flag: non-numeric non-structural text remaining after removing digits and common keywords
+    text_remainder <- if (!is.na(cell_val)) {
+      r <- str_remove_all(normalise_text(cell_val), "\\d+\\.?\\d*")
+      r <- str_remove_all(r, "[()\\[\\]%/;:,.\\u00b1+~\\-]")
+      r <- str_remove_all(r, regex(
+        "\\b(days?|hours?|hrs?|wks?|weeks?|SD|IQR|mean|median|medican|range|average|overall|and|or|the|to|from|with|was|were|of|n|vs\\.?)\\b",
+        ignore_case = TRUE))
+      str_trim(str_replace_all(r, "\\s+", " "))
+    } else ""
+    flag_additional_text <- if (nchar(text_remainder) > 3) "Y" else "N"
+
+    # Flag: cell numbers match the age column exactly (possible copy-paste duplication)
+    flag_dup <- "N"
+    if (COL_AGE %in% colnames(df) && !is.na(cell_val)) {
+      age_raw <- scalar_val(row[[COL_AGE]], "character")
+      if (!is.na(age_raw)) {
+        cell_rnd <- round(as.numeric(str_extract_all(normalise_text(cell_val),  "\\d+\\.?\\d*")[[1]]), 4)
+        age_rnd  <- round(as.numeric(str_extract_all(normalise_text(age_raw),   "\\d+\\.?\\d*")[[1]]), 4)
+        if (length(cell_rnd) > 0 && setequal(cell_rnd, age_rnd)) flag_dup <- "Y"
+      }
+    }
+
+    # Flag: any value was captured but its type (mean/median or SD/IQR/range) is unspecified
+    flag_unspecified <- if (isTRUE(parsed$overall_avg_not_specified == "Y") ||
+                            isTRUE(parsed$overall_unspec_reported   == "Y") ||
+                            isTRUE(parsed$group_1_avg_not_specified == "Y") ||
+                            isTRUE(parsed$group_1_unspec_reported   == "Y") ||
+                            isTRUE(parsed$group_2_avg_not_specified == "Y") ||
+                            isTRUE(parsed$group_2_unspec_reported   == "Y")) "Y" else "N"
+
+    # Subgroup detection: cell-aware count takes priority over study-design columns
+    g1_present <- !is.na(parsed$group_1_name) || !is.na(parsed$group_1_mean_value) ||
+      !is.na(parsed$group_1_median_value)      || !is.na(parsed$group_1_avg_not_specified_value)
+    g2_present <- !is.na(parsed$group_2_name) || !is.na(parsed$group_2_mean_value) ||
+      !is.na(parsed$group_2_median_value)      || !is.na(parsed$group_2_avg_not_specified_value)
+    cell_has_subgroups <- isTRUE(parsed$subgroups_reported == "Y") || g1_present
+
+    if (cell_has_subgroups) {
+      final_has_sub <- TRUE
+      final_n_sub   <- as.integer(g1_present) + as.integer(g2_present)
+      final_n_sub   <- max(final_n_sub, 1L)
+    } else {
+      final_has_sub <- sub_info$has_subgroups
+      final_n_sub   <- sub_info$n_subgroups
+    }
+
+    flag_excess_subgroups <- if (!is.na(final_n_sub) && final_n_sub > 2) "Y" else "N"
+
+    # Tag cell-level group names with their source column
+    tag_name <- function(nm) {
+      if (is.na(nm) || str_detect(nm, regex("^group_\\d+$", ignore_case = TRUE))) nm
+      else paste0(nm, " [", current_tag, "]")
+    }
+    cross_names <- get_cell_level_names_for_study(study_num)
+    all_subgroup_names <- combine_subgroup_names(
+      sub_info$names_from_T, sub_info$name_from_BB, sub_info$name_from_BC,
+      tag_name(parsed$group_1_name), tag_name(parsed$group_2_name), cross_names)
+
+    # Helpers for derived boundary-reported flags
+    yn_has  <- function(v)    if (!is.na(v)) "Y" else "N"
+    yn_miss <- function(...) if (all(is.na(c(...)))) "Y" else "N"
+
+    # Roll up individual flags into flag_any (subgroup fields excluded from roll-up)
+    individual_flags <- c(
+      flag_not                        = flag_not,
+      flag_question                   = flag_question,
+      flag_proportion_data            = flag_prop_data,
+      flag_unused_numbers             = flag_unused,
+      flag_additional_text            = flag_additional_text,
+      flag_duplication                = flag_dup,
+      flag_unspecified                = flag_unspecified,
+      overall_flag_approx             = parsed$overall_flag_approx,
+      overall_flag_UQR_lt_LQR         = parsed$overall_flag_UQR_lt_LQR,
+      overall_flag_IQR_with_pm        = parsed$overall_flag_IQR_with_pm,
+      overall_flag_unparsed_numbers   = parsed$overall_flag_unparsed_numbers,
+      group_1_flag_approx             = parsed$group_1_flag_approx,
+      group_1_flag_UQR_lt_LQR         = parsed$group_1_flag_UQR_lt_LQR,
+      group_1_flag_IQR_with_pm        = parsed$group_1_flag_IQR_with_pm,
+      group_1_flag_unparsed_numbers   = parsed$group_1_flag_unparsed_numbers,
+      group_2_flag_approx             = parsed$group_2_flag_approx,
+      group_2_flag_UQR_lt_LQR         = parsed$group_2_flag_UQR_lt_LQR,
+      group_2_flag_IQR_with_pm        = parsed$group_2_flag_IQR_with_pm,
+      group_2_flag_unparsed_numbers   = parsed$group_2_flag_unparsed_numbers
+    )
+    flag_any        <- if (any(individual_flags == "Y", na.rm = TRUE)) "Y" else "N"
+    triggered       <- names(individual_flags)[!is.na(individual_flags) & individual_flags == "Y"]
+    any_flag_string <- if (length(triggered) > 0) paste(triggered, collapse = ", ") else NA_character_
+
+    rows_out[[i]] <- list(
+      # ---- Basic ----
+      study_number                          = study_num,
+      study_reference                       = study_ref,
+      original_observation                  = cell_val,
+      # ---- Flags ----
+      flag_any                              = flag_any,
+      any_flag_string                       = any_flag_string,
+      flag_not                              = flag_not,
+      flag_question                         = flag_question,
+      flag_proportion_data                  = flag_prop_data,
+      flag_unused_numbers                   = flag_unused,
+      flag_additional_text                  = flag_additional_text,
+      flag_duplication                      = flag_dup,
+      flag_unspecified                      = flag_unspecified,
+      has_subgroups                         = if (isTRUE(final_has_sub)) "Y" else "N",
+      n_subgroups                           = final_n_sub,
+      flag_excess_subgroups                 = flag_excess_subgroups,
+      all_subgroup_names                    = all_subgroup_names,
+      # ---- Group structure ----
+      overall_reported                      = parsed$overall_reported,
+      subgroups_reported                    = parsed$subgroups_reported,
+      group_1_name                          = parsed$group_1_name,
+      group_2_name                          = parsed$group_2_name,
+      # ---- Overall average ----
+      overall_mean_reported                 = parsed$overall_mean_reported,
+      overall_mean_value                    = parsed$overall_mean_value,
+      overall_median_reported               = parsed$overall_median_reported,
+      overall_median_value                  = parsed$overall_median_value,
+      overall_avg_not_specified             = parsed$overall_avg_not_specified,
+      overall_avg_not_specified_value       = parsed$overall_avg_not_specified_value,
+      overall_avg_not_reported              = parsed$overall_avg_not_reported,
+      # ---- Overall dispersion ----
+      overall_SD_reported                   = parsed$overall_SD_reported,
+      overall_SD_value                      = parsed$overall_SD_value,
+      overall_IQR_reported                  = parsed$overall_IQR_reported,
+      overall_IQR_value                     = parsed$overall_IQR_value,
+      overall_unspec_disp_reported          = parsed$overall_unspec_reported,
+      overall_unspec_disp_value             = parsed$overall_unspec_disp_value,
+      overall_dispersion_not_reported       = parsed$overall_dispersion_not_reported,
+      # ---- Overall boundary types reported ----
+      overall_LQR_reported                  = yn_has(parsed$overall_IQR_LQR),
+      overall_UQR_reported                  = yn_has(parsed$overall_IQR_UQR),
+      overall_lower_range_reported          = yn_has(parsed$overall_range_lower),
+      overall_upper_range_reported          = yn_has(parsed$overall_range_upper),
+      overall_unspec_lower_reported         = yn_has(parsed$overall_unspec_lower),
+      overall_unspec_upper_reported         = yn_has(parsed$overall_unspec_upper),
+      overall_lower_boundary_not_reported   = yn_miss(parsed$overall_IQR_LQR,   parsed$overall_range_lower,  parsed$overall_unspec_lower),
+      overall_upper_boundary_not_reported   = yn_miss(parsed$overall_IQR_UQR,   parsed$overall_range_upper,  parsed$overall_unspec_upper),
+      # ---- Overall boundary values ----
+      overall_IQR_LQR                       = parsed$overall_IQR_LQR,
+      overall_IQR_UQR                       = parsed$overall_IQR_UQR,
+      overall_range_lower                   = parsed$overall_range_lower,
+      overall_range_upper                   = parsed$overall_range_upper,
+      overall_unspec_lower                  = parsed$overall_unspec_lower,
+      overall_unspec_upper                  = parsed$overall_unspec_upper,
+      # ---- Overall other flags ----
+      overall_flag_approx                   = parsed$overall_flag_approx,
+      overall_flag_UQR_lt_LQR               = parsed$overall_flag_UQR_lt_LQR,
+      overall_flag_IQR_with_pm              = parsed$overall_flag_IQR_with_pm,
+      overall_flag_unparsed_numbers         = parsed$overall_flag_unparsed_numbers,
+      # ---- Group 1 average ----
+      group_1_mean_reported                 = parsed$group_1_mean_reported,
+      group_1_mean_value                    = parsed$group_1_mean_value,
+      group_1_median_reported               = parsed$group_1_median_reported,
+      group_1_median_value                  = parsed$group_1_median_value,
+      group_1_avg_not_specified             = parsed$group_1_avg_not_specified,
+      group_1_avg_not_specified_value       = parsed$group_1_avg_not_specified_value,
+      group_1_avg_not_reported              = parsed$group_1_avg_not_reported,
+      # ---- Group 1 dispersion ----
+      group_1_SD_reported                   = parsed$group_1_SD_reported,
+      group_1_SD_value                      = parsed$group_1_SD_value,
+      group_1_IQR_reported                  = parsed$group_1_IQR_reported,
+      group_1_IQR_value                     = parsed$group_1_IQR_value,
+      group_1_unspec_disp_reported          = parsed$group_1_unspec_reported,
+      group_1_unspec_disp_value             = parsed$group_1_unspec_disp_value,
+      group_1_dispersion_not_reported       = parsed$group_1_dispersion_not_reported,
+      # ---- Group 1 boundary types reported ----
+      group_1_LQR_reported                  = yn_has(parsed$group_1_IQR_LQR),
+      group_1_UQR_reported                  = yn_has(parsed$group_1_IQR_UQR),
+      group_1_lower_range_reported          = yn_has(parsed$group_1_range_lower),
+      group_1_upper_range_reported          = yn_has(parsed$group_1_range_upper),
+      group_1_unspec_lower_reported         = yn_has(parsed$group_1_unspec_lower),
+      group_1_unspec_upper_reported         = yn_has(parsed$group_1_unspec_upper),
+      group_1_lower_boundary_not_reported   = yn_miss(parsed$group_1_IQR_LQR,   parsed$group_1_range_lower,  parsed$group_1_unspec_lower),
+      group_1_upper_boundary_not_reported   = yn_miss(parsed$group_1_IQR_UQR,   parsed$group_1_range_upper,  parsed$group_1_unspec_upper),
+      # ---- Group 1 boundary values ----
+      group_1_IQR_LQR                       = parsed$group_1_IQR_LQR,
+      group_1_IQR_UQR                       = parsed$group_1_IQR_UQR,
+      group_1_range_lower                   = parsed$group_1_range_lower,
+      group_1_range_upper                   = parsed$group_1_range_upper,
+      group_1_unspec_lower                  = parsed$group_1_unspec_lower,
+      group_1_unspec_upper                  = parsed$group_1_unspec_upper,
+      # ---- Group 1 other flags ----
+      group_1_flag_approx                   = parsed$group_1_flag_approx,
+      group_1_flag_UQR_lt_LQR               = parsed$group_1_flag_UQR_lt_LQR,
+      group_1_flag_IQR_with_pm              = parsed$group_1_flag_IQR_with_pm,
+      group_1_flag_unparsed_numbers         = parsed$group_1_flag_unparsed_numbers,
+      # ---- Group 2 average ----
+      group_2_mean_reported                 = parsed$group_2_mean_reported,
+      group_2_mean_value                    = parsed$group_2_mean_value,
+      group_2_median_reported               = parsed$group_2_median_reported,
+      group_2_median_value                  = parsed$group_2_median_value,
+      group_2_avg_not_specified             = parsed$group_2_avg_not_specified,
+      group_2_avg_not_specified_value       = parsed$group_2_avg_not_specified_value,
+      group_2_avg_not_reported              = parsed$group_2_avg_not_reported,
+      # ---- Group 2 dispersion ----
+      group_2_SD_reported                   = parsed$group_2_SD_reported,
+      group_2_SD_value                      = parsed$group_2_SD_value,
+      group_2_IQR_reported                  = parsed$group_2_IQR_reported,
+      group_2_IQR_value                     = parsed$group_2_IQR_value,
+      group_2_unspec_disp_reported          = parsed$group_2_unspec_reported,
+      group_2_unspec_disp_value             = parsed$group_2_unspec_disp_value,
+      group_2_dispersion_not_reported       = parsed$group_2_dispersion_not_reported,
+      # ---- Group 2 boundary types reported ----
+      group_2_LQR_reported                  = yn_has(parsed$group_2_IQR_LQR),
+      group_2_UQR_reported                  = yn_has(parsed$group_2_IQR_UQR),
+      group_2_lower_range_reported          = yn_has(parsed$group_2_range_lower),
+      group_2_upper_range_reported          = yn_has(parsed$group_2_range_upper),
+      group_2_unspec_lower_reported         = yn_has(parsed$group_2_unspec_lower),
+      group_2_unspec_upper_reported         = yn_has(parsed$group_2_unspec_upper),
+      group_2_lower_boundary_not_reported   = yn_miss(parsed$group_2_IQR_LQR,   parsed$group_2_range_lower,  parsed$group_2_unspec_lower),
+      group_2_upper_boundary_not_reported   = yn_miss(parsed$group_2_IQR_UQR,   parsed$group_2_range_upper,  parsed$group_2_unspec_upper),
+      # ---- Group 2 boundary values ----
+      group_2_IQR_LQR                       = parsed$group_2_IQR_LQR,
+      group_2_IQR_UQR                       = parsed$group_2_IQR_UQR,
+      group_2_range_lower                   = parsed$group_2_range_lower,
+      group_2_range_upper                   = parsed$group_2_range_upper,
+      group_2_unspec_lower                  = parsed$group_2_unspec_lower,
+      group_2_unspec_upper                  = parsed$group_2_unspec_upper,
+      # ---- Group 2 other flags ----
+      group_2_flag_approx                   = parsed$group_2_flag_approx,
+      group_2_flag_UQR_lt_LQR               = parsed$group_2_flag_UQR_lt_LQR,
+      group_2_flag_IQR_with_pm              = parsed$group_2_flag_IQR_with_pm,
+      group_2_flag_unparsed_numbers         = parsed$group_2_flag_unparsed_numbers
+    )
+  }
+
+  all_sheet_data[[sheet_name]] <- bind_rows(rows_out)
+}
+
+# =============================================================================
+# PART 4: Write full and NR workbooks
+# =============================================================================
+dir.create(dirname(output_path), showWarnings = FALSE, recursive = TRUE)
+
+FLAG_COLS <- c(
+  "flag_any","any_flag_string","flag_not","flag_question","flag_proportion_data",
+  "flag_unused_numbers","flag_additional_text","flag_duplication","flag_unspecified",
+  "has_subgroups","n_subgroups","flag_excess_subgroups","all_subgroup_names"
+)
+
+write_workbook <- function(sheet_data_list, path, fill_nr = FALSE) {
+  wb           <- createWorkbook()
+  header_style <- createStyle(fontName = "Arial", fontSize = 10, textDecoration = "bold",
+                              fgFill = "#D9E1F2", wrapText = TRUE, border = "Bottom")
+  flag_style   <- createStyle(fgFill = "#FFF2CC")
+
+  for (sname in names(sheet_data_list)) {
+    df_sheet <- sheet_data_list[[sname]]
+    if (fill_nr) {
+      df_sheet <- df_sheet %>%
+        mutate(across(everything(), ~ { x <- .x; x[is.na(x) | as.character(x) == ""] <- "NR"; x }))
+    }
+    addWorksheet(wb, sheetName = substr(sname, 1, 31))
+    writeData(wb, sheet = sname, x = df_sheet, headerStyle = header_style)
+    n_rows <- nrow(df_sheet)
+    if (n_rows > 0) {
+      for (j in seq_along(colnames(df_sheet))) {
+        if (colnames(df_sheet)[j] %in% FLAG_COLS)
+          addStyle(wb, sheet = sname, style = flag_style,
+                   rows = 2:(n_rows + 1), cols = j, gridExpand = TRUE)
+      }
+    }
+    for (j in seq_along(colnames(df_sheet)))
+      setColWidths(wb, sheet = sname, cols = j,
+                   widths = max(12, nchar(colnames(df_sheet)[j]) + 2))
+  }
+  saveWorkbook(wb, path, overwrite = TRUE)
+  cat("Saved:", path, "\n")
+}
+
+write_workbook(all_sheet_data, output_path,    fill_nr = FALSE)
+write_workbook(all_sheet_data, output_path_nr, fill_nr = TRUE)
+
+# =============================================================================
+# PART 5: Write condensed workbook
+# =============================================================================
+CONDENSED_COLS <- c(
+  "study_number", "study_reference", "original_observation",
+  "any_flag_string", "has_subgroups", "n_subgroups", "all_subgroup_names",
+  # Overall average values
+  "overall_mean_value", "overall_median_value", "overall_avg_not_specified_value",
+  # Overall dispersion values
+  "overall_SD_value", "overall_IQR_value", "overall_unspec_disp_value",
+  # Overall boundary values
+  "overall_IQR_LQR", "overall_IQR_UQR",
+  "overall_range_lower", "overall_range_upper",
+  "overall_unspec_lower", "overall_unspec_upper",
+  # Group 1
+  "group_1_name",
+  "group_1_mean_value", "group_1_median_value", "group_1_avg_not_specified_value",
+  "group_1_SD_value", "group_1_IQR_value", "group_1_unspec_disp_value",
+  "group_1_IQR_LQR", "group_1_IQR_UQR",
+  "group_1_range_lower", "group_1_range_upper",
+  "group_1_unspec_lower", "group_1_unspec_upper",
+  # Group 2
+  "group_2_name",
+  "group_2_mean_value", "group_2_median_value", "group_2_avg_not_specified_value",
+  "group_2_SD_value", "group_2_IQR_value", "group_2_unspec_disp_value",
+  "group_2_IQR_LQR", "group_2_IQR_UQR",
+  "group_2_range_lower", "group_2_range_upper",
+  "group_2_unspec_lower", "group_2_unspec_upper"
+)
+
+condensed_data <- lapply(all_sheet_data, function(df_sheet) {
+  present <- intersect(CONDENSED_COLS, colnames(df_sheet))
+  missing <- setdiff(CONDENSED_COLS, colnames(df_sheet))
+  if (length(missing) > 0)
+    warning("Condensed workbook missing expected column(s): ", paste(missing, collapse = ", "))
+  df_sheet[, present, drop = FALSE]
+})
+write_workbook(condensed_data, output_path_condensed, fill_nr = FALSE)
+
+cat("Done.\n")
